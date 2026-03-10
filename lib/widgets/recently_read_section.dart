@@ -1,10 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../models/reading_progress.dart';
-import '../services/thumbnail_service.dart';
+import 'cover_image.dart';
 
 // ---------------------------------------------------------------------------
 // Time-ago helper
@@ -71,10 +69,10 @@ class RecentlyReadSection extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Inner card (StatefulWidget to load thumbnail)
+// Inner card
 // ---------------------------------------------------------------------------
 
-class _RecentlyReadCard extends StatefulWidget {
+class _RecentlyReadCard extends StatelessWidget {
   final ReadingProgress progress;
   final VoidCallback onTap;
 
@@ -84,44 +82,9 @@ class _RecentlyReadCard extends StatefulWidget {
   });
 
   @override
-  State<_RecentlyReadCard> createState() => _RecentlyReadCardState();
-}
-
-class _RecentlyReadCardState extends State<_RecentlyReadCard> {
-  Future<File?>? _thumbFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadThumbnail();
-  }
-
-  void _loadThumbnail() {
-    final progress = widget.progress;
-    if (progress.coverImagePath == null) {
-      _thumbFuture = Future.value(null);
-      return;
-    }
-    _thumbFuture = ThumbnailService.instance.getThumbnailFileFromPaths(
-      sourcePath: progress.coverImagePath!,
-      archiveEntry: progress.coverArchiveEntry,
-      isArchive: progress.coverIsInArchive,
-    );
-  }
-
-  @override
-  void didUpdateWidget(_RecentlyReadCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.progress.mangaId != widget.progress.mangaId) {
-      _loadThumbnail();
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final progress = widget.progress;
     return GestureDetector(
-      onTap: widget.onTap,
+      onTap: onTap,
       child: SizedBox(
         width: 140,
         child: ClipRRect(
@@ -131,28 +94,24 @@ class _RecentlyReadCardState extends State<_RecentlyReadCard> {
             children: [
               // Cover image
               Expanded(
-                child: FutureBuilder<File?>(
-                  future: _thumbFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.done &&
-                        snapshot.data != null) {
-                      return Image.file(
-                        snapshot.data!,
-                        fit: BoxFit.cover,
-                      );
-                    }
-                    return Container(
-                      color: AppTheme.surface,
-                      child: Center(
-                        child: Icon(
-                          Icons.menu_book,
-                          size: 32,
-                          color: AppTheme.onBackground.withValues(alpha: 0.3),
+                child: progress.coverImagePath != null
+                    ? CoverImage(
+                        sourcePath: progress.coverImagePath!,
+                        archiveEntry: progress.coverArchiveEntry,
+                        isArchive: progress.coverIsInArchive,
+                        iconSize: 32,
+                      )
+                    : Container(
+                        color: AppTheme.surface,
+                        child: Center(
+                          child: Icon(
+                            Icons.menu_book,
+                            size: 32,
+                            color:
+                                AppTheme.onBackground.withValues(alpha: 0.3),
+                          ),
                         ),
                       ),
-                    );
-                  },
-                ),
               ),
               // Info area
               Container(

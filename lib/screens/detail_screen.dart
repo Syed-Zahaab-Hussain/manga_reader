@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,7 +5,7 @@ import '../main.dart';
 import '../models/manga_item.dart';
 import '../models/reading_progress.dart';
 import '../services/progress_service.dart';
-import '../services/thumbnail_service.dart';
+import '../widgets/cover_image.dart';
 
 class DetailScreen extends StatefulWidget {
   final Object? extra;
@@ -110,7 +108,7 @@ class _DetailScreenState extends State<DetailScreen> {
         fit: StackFit.expand,
         children: [
           // Cover image
-          _CoverImage(manga: _manga),
+          CoverImage(manga: _manga, iconSize: 64),
 
           // Gradient overlay at bottom
           Positioned(
@@ -294,52 +292,3 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Cover image widget — loads full cover (not thumbnail) for the banner
-// ---------------------------------------------------------------------------
-
-class _CoverImage extends StatefulWidget {
-  final MangaItem manga;
-  const _CoverImage({required this.manga});
-
-  @override
-  State<_CoverImage> createState() => _CoverImageState();
-}
-
-class _CoverImageState extends State<_CoverImage> {
-  Future<File?>? _thumbFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _thumbFuture =
-        ThumbnailService.instance.getThumbnailFile(widget.manga);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<File?>(
-      future: _thumbFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done &&
-            snapshot.data != null) {
-          return Image.file(
-            snapshot.data!,
-            fit: BoxFit.cover,
-            width: double.infinity,
-          );
-        }
-        return Container(
-          color: AppTheme.surface,
-          child: Center(
-            child: Icon(
-              Icons.menu_book,
-              size: 64,
-              color: AppTheme.onBackground.withValues(alpha: 0.3),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}

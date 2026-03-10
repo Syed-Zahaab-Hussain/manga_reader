@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/chapter_item.dart';
+import '../utils/file_utils.dart';
 
 /// Provides a list of image file paths for a given chapter.
 ///
@@ -77,10 +78,10 @@ class PageLoaderService {
     final files = dir
         .listSync(followLinks: false)
         .whereType<File>()
-        .where((f) => _isImageFile(f.path))
+        .where((f) => isImageFile(f.path))
         .toList();
 
-    files.sort((a, b) => _naturalCompare(p.basename(a.path), p.basename(b.path)));
+    files.sort((a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
 
     return files.map((f) => f.path).toList();
   }
@@ -144,7 +145,7 @@ class PageLoaderService {
 
       final imageEntries = archive.files.where((e) {
         if (!e.isFile) return false;
-        if (!_isImageFile(e.name)) return false;
+        if (!isImageFile(e.name)) return false;
         if (prefix.isNotEmpty && !e.name.startsWith(prefix)) return false;
         // Skip entries that are deeper than one level below the prefix
         final relative =
@@ -153,7 +154,7 @@ class PageLoaderService {
         return true;
       }).toList();
 
-      imageEntries.sort((a, b) => _naturalCompare(a.name, b.name));
+      imageEntries.sort((a, b) => naturalCompare(a.name, b.name));
 
       final pagePaths = <String>[];
       for (var i = 0; i < imageEntries.length; i++) {
@@ -186,37 +187,3 @@ class _ExtractedChapter {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Utilities (same as scanner_service — top-level for consistency)
-// ---------------------------------------------------------------------------
-
-bool _isImageFile(String name) {
-  final lower = name.toLowerCase();
-  return lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.webp');
-}
-
-int _naturalCompare(String a, String b) {
-  final reg = RegExp(r'(\d+)|(\D+)');
-  final aMatches = reg.allMatches(a).toList();
-  final bMatches = reg.allMatches(b).toList();
-
-  final len =
-      aMatches.length < bMatches.length ? aMatches.length : bMatches.length;
-  for (var i = 0; i < len; i++) {
-    final aSeg = aMatches[i].group(0)!;
-    final bSeg = bMatches[i].group(0)!;
-    final aNum = int.tryParse(aSeg);
-    final bNum = int.tryParse(bSeg);
-    if (aNum != null && bNum != null) {
-      final cmp = aNum.compareTo(bNum);
-      if (cmp != 0) return cmp;
-    } else {
-      final cmp = aSeg.compareTo(bSeg);
-      if (cmp != 0) return cmp;
-    }
-  }
-  return aMatches.length.compareTo(bMatches.length);
-}

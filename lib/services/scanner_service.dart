@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/chapter_item.dart';
 import '../models/manga_item.dart';
+import '../utils/file_utils.dart';
 
 // ---------------------------------------------------------------------------
 // Events
@@ -119,48 +120,6 @@ class ScannerService {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Natural sort (top-level, pure Dart)
-// ---------------------------------------------------------------------------
-
-int _naturalCompare(String a, String b) {
-  final reg = RegExp(r'(\d+)|(\D+)');
-  final aMatches = reg.allMatches(a).toList();
-  final bMatches = reg.allMatches(b).toList();
-
-  final len = aMatches.length < bMatches.length ? aMatches.length : bMatches.length;
-  for (var i = 0; i < len; i++) {
-    final aSeg = aMatches[i].group(0)!;
-    final bSeg = bMatches[i].group(0)!;
-    final aNum = int.tryParse(aSeg);
-    final bNum = int.tryParse(bSeg);
-    if (aNum != null && bNum != null) {
-      final cmp = aNum.compareTo(bNum);
-      if (cmp != 0) return cmp;
-    } else {
-      final cmp = aSeg.compareTo(bSeg);
-      if (cmp != 0) return cmp;
-    }
-  }
-  return aMatches.length.compareTo(bMatches.length);
-}
-
-// ---------------------------------------------------------------------------
-// Image extension check (top-level)
-// ---------------------------------------------------------------------------
-
-bool _isImageFile(String name) {
-  final lower = name.toLowerCase();
-  return lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.webp');
-}
-
-bool _isCoverFile(String name) {
-  final lower = p.basenameWithoutExtension(name).toLowerCase();
-  return lower == 'cover' && _isImageFile(name);
-}
 
 // ---------------------------------------------------------------------------
 // Isolate entry (top-level — required for Isolate.spawn)
@@ -203,7 +162,7 @@ void _isolateEntry(List<dynamic> args) {
 
     // Natural sort candidates by basename
     candidates.sort((a, b) =>
-        _naturalCompare(p.basename(a.path), p.basename(b.path)));
+        naturalCompare(p.basename(a.path), p.basename(b.path)));
 
     final total = candidates.length;
     sendPort.send({'type': 'progress', 'scanned': 0, 'total': total});
@@ -246,17 +205,17 @@ MangaItem? _scanFolderManga(Directory dir) {
   }
 
   // Natural-sort contents by basename
-  contents.sort((a, b) => _naturalCompare(p.basename(a.path), p.basename(b.path)));
+  contents.sort((a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
 
   final subDirs = contents.whereType<Directory>().toList();
   final rootImages =
-      contents.whereType<File>().where((f) => _isImageFile(f.path)).toList();
+      contents.whereType<File>().where((f) => isImageFile(f.path)).toList();
 
   final chapters = <ChapterItem>[];
   String? coverImagePath;
 
   // Check for cover.{ext} in manga root
-  final coverFile = rootImages.where((f) => _isCoverFile(p.basename(f.path))).firstOrNull;
+  final coverFile = rootImages.where((f) => isCoverFile(p.basename(f.path))).firstOrNull;
   if (coverFile != null) {
     coverImagePath = coverFile.path;
   }
@@ -271,11 +230,11 @@ MangaItem? _scanFolderManga(Directory dir) {
         continue;
       }
       subContents.sort(
-          (a, b) => _naturalCompare(p.basename(a.path), p.basename(b.path)));
+          (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
 
       final subImages = subContents
           .whereType<File>()
-          .where((f) => _isImageFile(f.path))
+          .where((f) => isImageFile(f.path))
           .toList();
       if (subImages.isEmpty) continue;
 
@@ -296,7 +255,7 @@ MangaItem? _scanFolderManga(Directory dir) {
     if (rootImages.isEmpty) return null;
 
     final nonCoverImages =
-        rootImages.where((f) => !_isCoverFile(p.basename(f.path))).toList();
+        rootImages.where((f) => !isCoverFile(p.basename(f.path))).toList();
     final chapterImages = nonCoverImages.isNotEmpty ? nonCoverImages : rootImages;
 
     chapters.add(ChapterItem(
@@ -344,14 +303,14 @@ MangaItem? _scanArchiveManga(File file) {
 
   // Filter image entries
   final imageEntries = archive.files
-      .where((e) => e.isFile && _isImageFile(e.name))
+      .where((e) => e.isFile && isImageFile(e.name))
       .toList();
 
   if (imageEntries.isEmpty) return null;
 
   // Natural sort by entry name
   imageEntries
-      .sort((a, b) => _naturalCompare(a.name, b.name));
+      .sort((a, b) => naturalCompare(a.name, b.name));
 
   // Detect top-level subdirectories
   final subDirNames = <String>{};
@@ -369,7 +328,7 @@ MangaItem? _scanArchiveManga(File file) {
 
   // Look for cover.{ext} at archive root (no '/' in name)
   final rootCover = imageEntries
-      .where((e) => !e.name.contains('/') && _isCoverFile(e.name))
+      .where((e) => !e.name.contains('/') && isCoverFile(e.name))
       .firstOrNull;
   if (rootCover != null) {
     coverImagePath = archivePath;
@@ -380,7 +339,7 @@ MangaItem? _scanArchiveManga(File file) {
   if (subDirNames.isNotEmpty) {
     // Sort subdirectory names naturally
     final sortedDirNames = subDirNames.toList()
-      ..sort(_naturalCompare);
+      ..sort(naturalCompare);
 
     for (final dirName in sortedDirNames) {
       final prefix = '$dirName/';

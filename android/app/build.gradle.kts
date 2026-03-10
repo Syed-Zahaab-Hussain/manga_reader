@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -15,6 +17,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    @Suppress("DEPRECATION")
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
@@ -41,4 +44,44 @@ android {
 
 flutter {
     source = "../.."
+}
+
+tasks.register("renameReleaseApk") {
+    doLast {
+        val outputDir = layout.buildDirectory.dir("outputs/flutter-apk").get().asFile
+        val sourceApk = File(outputDir, "app-release.apk")
+        val targetApk = File(outputDir, "Manga Reader.apk")
+        val sourceSha1 = File(outputDir, "app-release.apk.sha1")
+        val targetSha1 = File(outputDir, "Manga Reader.apk.sha1")
+        val legacyNamedApk = File(outputDir, "Manga Reader-release.apk")
+        val legacyNamedSha1 = File(outputDir, "Manga Reader-release.apk.sha1")
+
+        if (sourceApk.exists()) {
+            if (targetApk.exists()) {
+                targetApk.delete()
+            }
+            sourceApk.copyTo(targetApk, overwrite = true)
+        }
+
+        if (sourceSha1.exists()) {
+            if (targetSha1.exists()) {
+                targetSha1.delete()
+            }
+            sourceSha1.copyTo(targetSha1, overwrite = true)
+        }
+
+        if (legacyNamedApk.exists()) {
+            legacyNamedApk.delete()
+        }
+
+        if (legacyNamedSha1.exists()) {
+            legacyNamedSha1.delete()
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "assembleRelease" || name == "packageRelease" || name == "bundleRelease") {
+        finalizedBy("renameReleaseApk")
+    }
 }

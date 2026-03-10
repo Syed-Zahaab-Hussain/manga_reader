@@ -39,8 +39,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _topBarVisible = true;
   Timer? _hideTimer;
 
-  // Zoom
-  final TransformationController _zoomController = TransformationController();
+  // Page label visibility
+  bool _pageLabelsVisible = true;
 
   // Track if we already triggered next-chapter preload
   bool _preloadedNext = false;
@@ -65,7 +65,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _saveProgressNow();
     _saveTimer?.cancel();
     _hideTimer?.cancel();
-    _zoomController.dispose();
     _positionsListener.itemPositions.removeListener(_onPositionsChanged);
     PageLoaderService.instance.releaseAll();
     super.dispose();
@@ -86,7 +85,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (!mounted) return;
 
-    // Clamp jumpToPage to valid range
     final safePage = jumpToPage.clamp(0, paths.isEmpty ? 0 : paths.length - 1);
 
     setState(() {
@@ -96,7 +94,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _initialPage = safePage;
     });
 
-    // Jump after build
     if (safePage > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.isAttached) {
@@ -114,12 +111,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return;
 
-    // The topmost visible item is the current page
     final topmost = positions.reduce(
       (a, b) => a.itemLeadingEdge < b.itemLeadingEdge ? a : b,
     );
 
-    // If the top item is mostly scrolled past, use the next one
     int page = topmost.index;
     if (topmost.itemLeadingEdge < -0.5 && positions.length > 1) {
       final sorted = positions.toList()
@@ -134,7 +129,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _debouncedSave();
     }
 
-    // Preload next chapter when within 5 pages of end
     if (!_preloadedNext &&
         _pagePaths.isNotEmpty &&
         page >= _pagePaths.length - 5 &&
@@ -191,16 +185,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (index < 0 || index >= _manga.chapters.length) return;
     _saveProgressNow();
 
-    // Release old chapter's archive temp files if different
     final oldChapter = _manga.chapters[_chapterIndex];
     _chapterIndex = index;
 
-    // Reset zoom
-    _zoomController.value = Matrix4.identity();
-
     _loadChapter(jumpToPage: 0);
 
-    // Release old chapter after loading new one
     PageLoaderService.instance.releaseChapter(oldChapter);
   }
 
@@ -249,7 +238,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final page = int.tryParse(input.trim());
     if (page == null || page < 1 || page > _pagePaths.length) return;
 
-    final index = page - 1; // User sees 1-based
+    final index = page - 1;
     if (_scrollController.isAttached) {
       _scrollController.jumpTo(index: index);
     }
@@ -265,7 +254,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Reader content
           if (_loading)
             const Center(
               child: CircularProgressIndicator(color: AppTheme.primary),
@@ -280,29 +268,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
           else
             GestureDetector(
               onTap: _toggleTopBar,
-              child: InteractiveViewer(
-                transformationController: _zoomController,
-                minScale: 1.0,
-                maxScale: 4.0,
-                panEnabled: true,
-                child: ScrollablePositionedList.builder(
-                  itemScrollController: _scrollController,
-                  itemPositionsListener: _positionsListener,
-                  initialScrollIndex: _initialPage,
-                  itemCount: _pagePaths.length,
-                  addAutomaticKeepAlives: false,
-                  itemBuilder: (context, index) {
-                    return _PageWidget(
-                      filePath: _pagePaths[index],
-                      pageIndex: index,
-                      totalPages: _pagePaths.length,
-                    );
-                  },
-                ),
+              child: ScrollablePositionedList.builder(
+                itemScrollController: _scrollController,
+                itemPositionsListener: _positionsListener,
+                initialScrollIndex: _initialPage,
+                itemCount: _pagePaths.length,
+                addAutomaticKeepAlives: false,
+                itemBuilder: (context, index) {
+                  return _PageWidget(
+                    filePath: _pagePaths[index],
+                    pageIndex: index,
+                    totalPages: _pagePaths.length,
+                    showLabel: _pageLabelsVisible,
+                  );
+                },
               ),
             ),
 
-          // Top bar overlay
           if (_topBarVisible) _buildTopBar(),
         ],
       ),
@@ -335,7 +317,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
               children: [
-                // Back button
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
                   onPressed: () {
@@ -346,7 +327,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
                 const SizedBox(width: 4),
 
-                // Chapter title (truncated)
                 Expanded(
                   child: Text(
                     chapter.title,
@@ -381,21 +361,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ),
 
+                // Toggle page labels
+                IconButton(
+                  icon: Icon(
+                    _pageLabelsVisible
+                        ? Icons.format_list_numbered
+                        : Icons.format_list_numbered_rtl,
+                    color: _pageLabelsVisible ? Colors.white : Colors.white38,
+                  ),
+                  tooltip: _pageLabelsVisible
+                      ? 'Hide page numbers'
+                      : 'Show page numbers',
+                  onPressed: () {
+                    setState(() => _pageLabelsVisible = !_pageLabelsVisible);
+                    _scheduleHideTopBar();
+                  },
+                ),
+
                 const SizedBox(width: 4),
 
-                // Prev chapter
                 IconButton(
                   icon: const Icon(Icons.skip_previous_rounded,
                       color: Colors.white),
-                  onPressed: hasPrev ? () => _goToChapter(_chapterIndex - 1) : null,
+                  onPressed:
+                      hasPrev ? () => _goToChapter(_chapterIndex - 1) : null,
                   disabledColor: Colors.white24,
                 ),
 
-                // Next chapter
                 IconButton(
                   icon:
                       const Icon(Icons.skip_next_rounded, color: Colors.white),
-                  onPressed: hasNext ? () => _goToChapter(_chapterIndex + 1) : null,
+                  onPressed:
+                      hasNext ? () => _goToChapter(_chapterIndex + 1) : null,
                   disabledColor: Colors.white24,
                 ),
               ],
@@ -408,36 +405,99 @@ class _ReaderScreenState extends State<ReaderScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Individual page widget — loads image on demand
+// Individual page widget — double-tap to zoom in/out
 // ---------------------------------------------------------------------------
 
 class _PageWidget extends StatefulWidget {
   final String filePath;
   final int pageIndex;
   final int totalPages;
+  final bool showLabel;
 
   const _PageWidget({
     required this.filePath,
     required this.pageIndex,
     required this.totalPages,
+    required this.showLabel,
   });
 
   @override
   State<_PageWidget> createState() => _PageWidgetState();
 }
 
-class _PageWidgetState extends State<_PageWidget> {
+class _PageWidgetState extends State<_PageWidget>
+    with SingleTickerProviderStateMixin {
   File? _file;
   bool _exists = false;
+
+  final TransformationController _transformController =
+      TransformationController();
+  late final AnimationController _animController;
+  Animation<Matrix4>? _animation;
+
+  // Captured on double-tap-down so we know where to zoom into
+  Offset _doubleTapPosition = Offset.zero;
+
+  static const double _zoomedScale = 2.5;
 
   @override
   void initState() {
     super.initState();
     _file = File(widget.filePath);
     _exists = _file!.existsSync();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    )..addListener(() {
+        if (_animation != null) {
+          _transformController.value = _animation!.value;
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _transformController.dispose();
+    _animController.dispose();
+    super.dispose();
+  }
+
+  bool get _isZoomed =>
+      _transformController.value != Matrix4.identity();
+
+  void _onDoubleTapDown(TapDownDetails details) {
+    _doubleTapPosition = details.localPosition;
+  }
+
+  void _onDoubleTap() {
+    final Matrix4 target;
+
+    if (_isZoomed) {
+      target = Matrix4.identity();
+    } else {
+      // Translate so the tapped point stays centred after scaling
+      final x = -_doubleTapPosition.dx * (_zoomedScale - 1);
+      final y = -_doubleTapPosition.dy * (_zoomedScale - 1);
+      target = Matrix4.identity()
+        ..translate(x, y)
+        ..scale(_zoomedScale);
+    }
+
+    _animation = Matrix4Tween(
+      begin: _transformController.value,
+      end: target,
+    ).animate(CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeInOut,
+    ));
+
+    _animController
+      ..reset()
+      ..forward();
   }
 
   Widget _buildPageLabel() {
+    if (!widget.showLabel) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Text(
@@ -451,50 +511,60 @@ class _PageWidgetState extends State<_PageWidget> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildImage() {
     if (!_exists) {
-      return Column(
-        children: [
-          Container(
-            height: 400,
-            color: Colors.black,
-            child: const Center(
-              child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
-            ),
-          ),
-          _buildPageLabel(),
-        ],
+      return Container(
+        height: 400,
+        color: Colors.black,
+        child: const Center(
+          child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
+        ),
       );
     }
 
+    return Image.file(
+      _file!,
+      fit: BoxFit.fitWidth,
+      width: double.infinity,
+      filterQuality: FilterQuality.medium,
+      errorBuilder: (context, error, stack) {
+        return Container(
+          height: 400,
+          color: Colors.black,
+          child: const Center(
+            child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
+          ),
+        );
+      },
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) return child;
+        return Container(
+          height: 400,
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(
+                color: AppTheme.primary, strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
-        Image.file(
-          _file!,
-          fit: BoxFit.fitWidth,
-          width: double.infinity,
-          filterQuality: FilterQuality.medium,
-          errorBuilder: (context, error, stack) {
-            return Container(
-              height: 400,
-              color: Colors.black,
-              child: const Center(
-                child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
-              ),
-            );
-          },
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || frame != null) return child;
-            return Container(
-              height: 400,
-              color: Colors.black,
-              child: const Center(
-                child: CircularProgressIndicator(
-                    color: AppTheme.primary, strokeWidth: 2),
-              ),
-            );
-          },
+        GestureDetector(
+          onDoubleTapDown: _onDoubleTapDown,
+          onDoubleTap: _onDoubleTap,
+          child: InteractiveViewer(
+            transformationController: _transformController,
+            minScale: 1.0,
+            maxScale: 4.0,
+            // Only pan when zoomed in; vertical drags scroll between pages otherwise
+            panEnabled: _isZoomed,
+            child: _buildImage(),
+          ),
         ),
         _buildPageLabel(),
       ],

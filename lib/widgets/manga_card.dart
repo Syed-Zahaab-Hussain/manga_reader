@@ -1,13 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../models/manga_item.dart';
 import '../models/reading_progress.dart';
-import '../services/thumbnail_service.dart';
+import 'cover_image.dart';
 
-class MangaCard extends StatefulWidget {
+class MangaCard extends StatelessWidget {
   final MangaItem manga;
   final ReadingProgress? progress;
   final VoidCallback onTap;
@@ -20,30 +18,9 @@ class MangaCard extends StatefulWidget {
   });
 
   @override
-  State<MangaCard> createState() => _MangaCardState();
-}
-
-class _MangaCardState extends State<MangaCard> {
-  Future<File?>? _thumbFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _thumbFuture = ThumbnailService.instance.getThumbnailFile(widget.manga);
-  }
-
-  @override
-  void didUpdateWidget(MangaCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.manga.id != widget.manga.id) {
-      _thumbFuture = ThumbnailService.instance.getThumbnailFile(widget.manga);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: widget.onTap,
+      onTap: onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: AspectRatio(
@@ -57,8 +34,8 @@ class _MangaCardState extends State<MangaCard> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _buildCover(),
-                    if (widget.progress != null)
+                    CoverImage(manga: manga),
+                    if (progress != null)
                       Positioned(
                         top: 6,
                         right: 6,
@@ -72,14 +49,14 @@ class _MangaCardState extends State<MangaCard> {
                 flex: 30,
                 child: Container(
                   color: AppTheme.surface,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        widget.manga.title,
+                        manga.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -90,7 +67,7 @@ class _MangaCardState extends State<MangaCard> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${widget.manga.chapterCount} ch.',
+                        '${manga.chapterCount} ch.',
                         style: const TextStyle(
                           color: AppTheme.textSecondary,
                           fontSize: 10,
@@ -102,38 +79,6 @@ class _MangaCardState extends State<MangaCard> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCover() {
-    return FutureBuilder<File?>(
-      future: _thumbFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done &&
-            snapshot.data != null) {
-          return Image.file(
-            snapshot.data!,
-            fit: BoxFit.cover,
-          );
-        }
-        return _Skeleton();
-      },
-    );
-  }
-}
-
-class _Skeleton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: AppTheme.surface,
-      child: Center(
-        child: Icon(
-          Icons.menu_book,
-          size: 36,
-          color: AppTheme.onBackground.withValues(alpha: 0.3),
         ),
       ),
     );

@@ -35,10 +35,10 @@ class _SetupScreenState extends State<SetupScreen> {
     ]);
     if (!mounted) return;
     setState(() {
-      _step = (results[0] as bool)
+      _step = results[0]
           ? _SetupStep.verifyExistingPin
           : _SetupStep.enterPin;
-      _biometricAvailable = results[1] as bool;
+      _biometricAvailable = results[1];
     });
   }
 

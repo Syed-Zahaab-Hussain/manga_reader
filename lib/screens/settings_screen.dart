@@ -1,16 +1,13 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../services/auth_service.dart';
-
 import '../services/progress_service.dart';
 import '../services/thumbnail_service.dart';
+import '../utils/storage_permission.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -55,39 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // -------------------------------------------------------------------------
 
   Future<void> _changeFolder() async {
-    // On Android, request storage permission before opening the file picker.
-    if (Platform.isAndroid) {
-      final alreadyGranted = await Permission.manageExternalStorage.isGranted ||
-          await Permission.storage.isGranted;
-
-      if (!alreadyGranted) {
-        AppLock.suppressNext = true;
-        final manageResult = await Permission.manageExternalStorage.request();
-
-        if (!manageResult.isGranted) {
-          AppLock.suppressNext = true;
-          final storageResult = await Permission.storage.request();
-
-          if (!storageResult.isGranted) {
-            AppLock.suppressNext = false;
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text(
-                      'Storage permission is required to read manga files.'),
-                  backgroundColor: Colors.red.shade700,
-                  action: SnackBarAction(
-                    label: 'Settings',
-                    onPressed: openAppSettings,
-                  ),
-                ),
-              );
-            }
-            return;
-          }
-        }
-      }
-    }
+    if (!await requestStoragePermission(context)) return;
 
     AppLock.suppressNext = true;
     final result = await FilePicker.platform.getDirectoryPath(

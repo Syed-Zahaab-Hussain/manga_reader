@@ -9,6 +9,7 @@ import 'screens/detail_screen.dart';
 import 'screens/reader_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/auth_service.dart';
+import 'widgets/pin_keypad.dart';
 
 class AppLock {
   static bool suppressNext = false;
@@ -48,7 +49,10 @@ class MangaReaderApp extends StatefulWidget {
 class _MangaReaderAppState extends State<MangaReaderApp>
     with WidgetsBindingObserver {
   bool _wasInBackground = false;
+  // Shown immediately on inactive — covers app-switcher preview
   bool _showPrivacyOverlay = false;
+  // Shown instead of navigating to /login — preserves nav stack
+  bool _showLockOverlay = false;
 
   @override
   void initState() {
@@ -64,35 +68,51 @@ class _MangaReaderAppState extends State<MangaReaderApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _wasInBackground = true;
-      // Show overlay immediately so content is hidden in app switcher
-      // and during the brief moment before the lock screen appears.
-      setState(() => _showPrivacyOverlay = true);
-    } else if (state == AppLifecycleState.resumed && _wasInBackground) {
-      _wasInBackground = false;
-      _lockIfNeeded();
+    switch (state) {
+      case AppLifecycleState.inactive:
+        // Fires before paused AND when returning from background (before resumed).
+        // Show privacy overlay immediately so app-switcher screenshot is blocked.
+        if (!_showLockOverlay) {
+          setState(() => _showPrivacyOverlay = true);
+        }
+      case AppLifecycleState.paused:
+        _wasInBackground = true;
+      case AppLifecycleState.resumed:
+        if (_wasInBackground) {
+          _wasInBackground = false;
+          _lockIfNeeded();
+        } else {
+          // Returning from something minor (notification shade, etc.) — just
+          // hide the privacy overlay without requiring authentication.
+          setState(() => _showPrivacyOverlay = false);
+        }
+      default:
+        break;
     }
   }
 
   Future<void> _lockIfNeeded() async {
     if (AppLock.suppressNext) {
       AppLock.suppressNext = false;
-      if (mounted) setState(() => _showPrivacyOverlay = false);
+      setState(() => _showPrivacyOverlay = false);
       return;
     }
     final hasPin = await AuthService.hasPin();
     if (!mounted) return;
     if (hasPin) {
-      _router.go('/login');
-      // Remove overlay after one frame so the login screen is rendered first,
-      // preventing any flash of the previous screen.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _showPrivacyOverlay = false);
+      // Show lock overlay over whatever screen the user was on.
+      // Privacy overlay is no longer needed once the lock is visible.
+      setState(() {
+        _showLockOverlay = true;
+        _showPrivacyOverlay = false;
       });
     } else {
       setState(() => _showPrivacyOverlay = false);
     }
+  }
+
+  void _onUnlocked() {
+    setState(() => _showLockOverlay = false);
   }
 
   @override
@@ -108,10 +128,16 @@ class _MangaReaderAppState extends State<MangaReaderApp>
         ),
         if (_showPrivacyOverlay)
           const _PrivacyOverlay(),
+        if (_showLockOverlay)
+          _LockOverlay(onUnlocked: _onUnlocked),
       ],
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Privacy overlay — blank screen shown immediately when app goes inactive
+// ---------------------------------------------------------------------------
 
 class _PrivacyOverlay extends StatelessWidget {
   const _PrivacyOverlay();
@@ -132,6 +158,163 @@ class _PrivacyOverlay extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Lock overlay — PIN + biometric, dismisses in place without nav stack reset
+// ---------------------------------------------------------------------------
+
+class _LockOverlay extends StatefulWidget {
+  final VoidCallback onUnlocked;
+  const _LockOverlay({required this.onUnlocked});
+
+  @override
+  State<_LockOverlay> createState() => _LockOverlayState();
+}
+
+class _LockOverlayState extends State<_LockOverlay> {
+  final GlobalKey<PinKeypadState> _keypadKey = GlobalKey();
+  String _errorMessage = '';
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBiometric();
+  }
+
+  Future<void> _initBiometric() async {
+    final available = await AuthService.isBiometricAvailable();
+    final enabled = await AuthService.isBiometricEnabled();
+    if (!mounted) return;
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled;
+    });
+    if (available && enabled) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) _tryBiometric();
+    }
+  }
+
+  Future<void> _tryBiometric() async {
+    final success = await AuthService.authenticateWithBiometric();
+    if (!mounted) return;
+    if (success) widget.onUnlocked();
+  }
+
+  Future<void> _onPinComplete(String pin) async {
+    final valid = await AuthService.verifyPin(pin);
+    if (!mounted) return;
+    if (valid) {
+      widget.onUnlocked();
+    } else {
+      setState(() => _errorMessage = 'Incorrect PIN. Try again.');
+      _keypadKey.currentState?.clear();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        color: AppTheme.background,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 48),
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.menu_book_rounded,
+                    size: 44,
+                    color: AppTheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Manga Reader',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.onBackground,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Enter your PIN',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 8),
+                AnimatedOpacity(
+                  opacity: _errorMessage.isNotEmpty ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Text(
+                    _errorMessage,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                PinKeypad(
+                  key: _keypadKey,
+                  pinLength: 4,
+                  onComplete: _onPinComplete,
+                ),
+                const SizedBox(height: 32),
+                if (_biometricAvailable && _biometricEnabled)
+                  _BiometricButton(onTap: _tryBiometric),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BiometricButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _BiometricButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppTheme.primary, width: 2),
+            ),
+            child: const Icon(Icons.fingerprint, size: 36, color: AppTheme.primary),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Use Fingerprint',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
 
 class AppTheme {
   static const Color background = Color(0xFF11221F);

@@ -4,7 +4,7 @@ import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../utils/storage_permission.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
@@ -53,6 +53,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   final List<MangaItem> _pendingManga = [];
   Timer? _batchTimer;
+  int _pendingScanned = 0;
+  int _pendingTotal = 0;
 
   String _searchQuery = '';
   SortOption _sortOption = SortOption.titleAsc;
@@ -64,7 +66,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
-    _loadRecentlyRead().then((_) => _loadFolderAndCache());
+    _loadFolderAndCache();
   }
 
   @override
@@ -81,21 +83,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // -------------------------------------------------------------------------
 
   void _flushPending() {
-    if (_pendingManga.isEmpty) return;
-    // Process in chunks to avoid long sync frames
-    const chunkSize = 20;
-    final chunk = _pendingManga.sublist(0, min(chunkSize, _pendingManga.length));
-    _pendingManga.removeRange(0, chunk.length);
+    final hasManga = _pendingManga.isNotEmpty;
+    final hasProgress =
+        _pendingScanned != _scannedCount || _pendingTotal != _totalCount;
+    if (!hasManga && !hasProgress) return;
+
+    // Process manga in chunks to avoid long sync frames
+    List<MangaItem>? chunk;
+    if (hasManga) {
+      const chunkSize = 20;
+      chunk = _pendingManga.sublist(0, min(chunkSize, _pendingManga.length));
+      _pendingManga.removeRange(0, chunk.length);
+    }
 
     setState(() {
-      for (final m in chunk) {
-        m.progress = _progressMap[m.id];
-        _allManga.add(m);
+      if (hasProgress) {
+        _scannedCount = _pendingScanned;
+        _totalCount = _pendingTotal;
       }
-      _applyFilter();
+      if (chunk != null) {
+        for (final m in chunk) {
+          m.progress = _progressMap[m.id];
+          _allManga.add(m);
+        }
+        // Skip sort while scanning; only apply filter (search) without re-sorting
+        if (_isScanning) {
+          _filteredManga = _searchQuery.isEmpty
+              ? _allManga.toList()
+              : _allManga
+                  .where((m) =>
+                      m.title.toLowerCase().contains(_searchQuery.toLowerCase()))
+                  .toList();
+        } else {
+          _applyFilter();
+        }
+      }
     });
 
-    // If more remain, schedule next chunk immediately after frame
+    // If more manga remain, schedule next chunk immediately after frame
     if (_pendingManga.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _flushPending());
     }
@@ -109,16 +134,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final results = await Future.wait([
       SharedPreferences.getInstance(),
       LibraryCacheService.load(),
+      ProgressService.getAllAsMap(),
     ]);
     if (!mounted) return;
 
     final prefs = results[0] as SharedPreferences;
     final cached = results[1] as List<MangaItem>;
+    final progressMap = results[2] as Map<String, ReadingProgress>;
     final path = prefs.getString('manga_folder_path');
+
+    // Load recently read filtered to this folder
+    final allRecent = await ProgressService.getRecentlyRead(limit: 8);
+    if (!mounted) return;
+    final filtered = path == null
+        ? <ReadingProgress>[]
+        : allRecent.where((p) => p.mangaId.startsWith(path)).toList();
 
     if (cached.isNotEmpty) {
       setState(() {
         _folderPath = path;
+        _progressMap = progressMap;
+        _recentlyRead = filtered;
         for (final m in cached) {
           m.progress = _progressMap[m.id];
         }
@@ -126,47 +162,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _applyFilter();
       });
     } else {
-      setState(() => _folderPath = path);
+      setState(() {
+        _folderPath = path;
+        _progressMap = progressMap;
+        _recentlyRead = filtered;
+      });
       // No cache yet — scan once to build it
       if (path != null) _startScan(path);
     }
-  }
-
-  Future<bool> _requestStoragePermission() async {
-    if (!Platform.isAndroid) return true;
-
-    // If already granted, return immediately — no dialog, no pause/resume,
-    // so we must NOT set suppressNext (it would skip a legitimate lock later).
-    if (await Permission.manageExternalStorage.isGranted) return true;
-    if (await Permission.storage.isGranted) return true;
-
-    // Permission is not yet granted — a system dialog will open, which causes
-    // app to pause/resume and would trigger the app-lock. Suppress it.
-    AppLock.suppressNext = true;
-    final manageStatus = await Permission.manageExternalStorage.request();
-    if (manageStatus.isGranted) return true;
-
-    AppLock.suppressNext = true;
-    final storageStatus = await Permission.storage.request();
-    if (storageStatus.isGranted) return true;
-
-    // Both denied — clear the flag so the next resume locks normally.
-    AppLock.suppressNext = false;
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-              'Storage permission is required to read manga files.'),
-          backgroundColor: Colors.red.shade700,
-          action: SnackBarAction(
-            label: 'Settings',
-            onPressed: openAppSettings,
-          ),
-        ),
-      );
-    }
-    return false;
   }
 
   Future<void> _loadRecentlyRead() async {
@@ -175,14 +178,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ProgressService.getAllAsMap(),
     ]);
     if (!mounted) return;
+    final allRecent = results[0] as List<ReadingProgress>;
+    final progressMap = results[1] as Map<String, ReadingProgress>;
+
+    // Filter recently read to only show manga from the current folder
+    final folder = _folderPath;
+    final filtered = folder == null
+        ? <ReadingProgress>[]
+        : allRecent.where((p) => p.mangaId.startsWith(folder)).toList();
+
     setState(() {
-      _recentlyRead = results[0] as List<ReadingProgress>;
-      _progressMap = results[1] as Map<String, ReadingProgress>;
+      _recentlyRead = filtered;
+      _progressMap = progressMap;
     });
   }
 
   Future<void> _startScan(String path) async {
-    if (!await _requestStoragePermission()) return;
+    if (!await requestStoragePermission(context)) return;
 
     if (!Directory(path).existsSync()) {
       if (!mounted) return;
@@ -202,6 +214,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _allManga = [];
       _filteredManga = [];
       _pendingManga.clear();
+      _pendingScanned = 0;
+      _pendingTotal = 0;
       _isScanning = true;
       _scannedCount = 0;
       _totalCount = 0;
@@ -219,11 +233,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (!mounted) return;
         switch (event) {
           case ScanProgressEvent(:final scanned, :final total):
-            // Progress bar only — cheap update, no sort needed.
-            setState(() {
-              _scannedCount = scanned;
-              _totalCount = total;
-            });
+            // Buffer — flushed by the batch timer along with manga items.
+            _pendingScanned = scanned;
+            _pendingTotal = total;
           case ScanMangaEvent(:final manga):
             // Buffer; the timer flushes in batches.
             _pendingManga.add(manga);
@@ -231,7 +243,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             _batchTimer?.cancel();
             _batchTimer = null;
             _flushPending(); // drain whatever is left
-            setState(() => _isScanning = false);
+            setState(() {
+              _isScanning = false;
+              _applyFilter(); // apply sort now that scan is done
+            });
             LibraryCacheService.save(_allManga);
           case ScanErrorEvent(:final message):
             _batchTimer?.cancel();
@@ -289,9 +304,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _triggerRefresh() async {
+    // Also pick up folder changes (e.g. set during first-time setup)
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final newPath = prefs.getString('manga_folder_path');
+    if (newPath != _folderPath) {
+      setState(() => _folderPath = newPath);
+      LibraryCacheService.clear();
+    }
     await _loadRecentlyRead();
     if (_folderPath != null) {
       _startScan(_folderPath!);
+    }
+  }
+
+  Future<void> _openSettingsAndReload() async {
+    await context.push('/settings');
+    if (!mounted) return;
+    _loadRecentlyRead();
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final newPath = prefs.getString('manga_folder_path');
+    if (newPath != _folderPath) {
+      setState(() => _folderPath = newPath);
+      LibraryCacheService.clear();
+      if (newPath != null) {
+        _startScan(newPath);
+      } else {
+        setState(() {
+          _allManga = [];
+          _filteredManga = [];
+          _folderPath = null;
+        });
+      }
     }
   }
 
@@ -299,14 +344,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // Navigation
   // -------------------------------------------------------------------------
 
-  void _onMangaTap(MangaItem manga) {
-    context.push('/detail', extra: manga);
+  Future<void> _onMangaTap(MangaItem manga) async {
+    await context.push('/detail', extra: manga);
+    if (mounted) _loadRecentlyRead();
   }
 
-  void _onRecentlyReadTap(ReadingProgress progress) {
+  Future<void> _onRecentlyReadTap(ReadingProgress progress) async {
     final manga = _allManga.where((m) => m.id == progress.mangaId).firstOrNull;
     if (manga != null) {
-      context.push('/detail', extra: manga);
+      await context.push('/detail', extra: manga);
+      if (mounted) _loadRecentlyRead();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -442,27 +489,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           IconButton(
             icon: const Icon(Icons.settings, color: AppTheme.onBackground),
             tooltip: 'Settings',
-            onPressed: () async {
-              await context.push('/settings');
-              if (!mounted) return;
-              _loadRecentlyRead();
-              final prefs = await SharedPreferences.getInstance();
-              if (!mounted) return;
-              final newPath = prefs.getString('manga_folder_path');
-              if (newPath != _folderPath) {
-                setState(() => _folderPath = newPath);
-                LibraryCacheService.clear();
-                if (newPath != null) {
-                  _startScan(newPath);
-                } else {
-                  setState(() {
-                    _allManga = [];
-                    _filteredManga = [];
-                    _folderPath = null;
-                  });
-                }
-              }
-            },
+            onPressed: _openSettingsAndReload,
           ),
         ],
       ),
@@ -621,7 +648,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
-                    onPressed: () => context.push('/settings'),
+                    onPressed: _openSettingsAndReload,
                     icon: const Icon(Icons.settings),
                     label: const Text('Open Settings'),
                   ),
