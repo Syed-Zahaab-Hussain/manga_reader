@@ -42,16 +42,17 @@ class _DetailScreenState extends State<DetailScreen> {
     return indices;
   }
 
-  void _openReader(int chapterIndex) {
+  void _openReader(int chapterIndex, {int pageIndex = 0}) {
     context.push('/reader', extra: {
       'manga': _manga,
       'chapterIndex': chapterIndex,
-    });
+      'pageIndex': pageIndex,
+    }).then((_) => _loadProgress()); // Reload progress when returning
   }
 
   void _continueReading() {
     if (_progress == null) return;
-    _openReader(_progress!.chapterIndex);
+    _openReader(_progress!.chapterIndex, pageIndex: _progress!.pageIndex);
   }
 
   @override

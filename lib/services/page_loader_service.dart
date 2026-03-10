@@ -1,0 +1,222 @@
+import 'dart:io';
+
+import 'package:archive/archive_io.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import '../models/chapter_item.dart';
+
+/// Provides a list of image file paths for a given chapter.
+///
+/// - Folder-based chapters: lists and natural-sorts the directory.
+/// - Archive-based chapters: extracts images to a temp directory once,
+///   then returns paths to the extracted files.
+class PageLoaderService {
+  PageLoaderService._();
+  static final PageLoaderService instance = PageLoaderService._();
+
+  /// Temp directories that have been created for archive extraction.
+  /// Key = "${archivePath}::${archiveEntryPrefix}"
+  final Map<String, _ExtractedChapter> _extracted = {};
+
+  /// Currently running extractions so we don't double-extract.
+  final Map<String, Future<_ExtractedChapter>> _pending = {};
+
+  /// Returns ordered list of image file paths for the given chapter.
+  /// For archive chapters, extracts to temp dir first (cached).
+  Future<List<String>> loadChapterPages(ChapterItem chapter) async {
+    if (!chapter.isArchive) {
+      return _loadFolderPages(chapter);
+    } else {
+      return _loadArchivePages(chapter);
+    }
+  }
+
+  /// Preload a chapter's pages in the background (archive extraction).
+  /// No-op for folder-based chapters.
+  Future<void> preloadChapter(ChapterItem chapter) async {
+    if (!chapter.isArchive) return;
+    await _ensureExtracted(chapter);
+  }
+
+  /// Clean up a specific chapter's temp files.
+  Future<void> releaseChapter(ChapterItem chapter) async {
+    final key = _chapterKey(chapter);
+    _pending.remove(key);
+    final extracted = _extracted.remove(key);
+    if (extracted != null) {
+      try {
+        if (extracted.tempDir.existsSync()) {
+          await extracted.tempDir.delete(recursive: true);
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Clean up all temp files.
+  Future<void> releaseAll() async {
+    for (final entry in _extracted.values) {
+      try {
+        if (entry.tempDir.existsSync()) {
+          await entry.tempDir.delete(recursive: true);
+        }
+      } catch (_) {}
+    }
+    _extracted.clear();
+    _pending.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // Folder-based
+  // -------------------------------------------------------------------------
+
+  Future<List<String>> _loadFolderPages(ChapterItem chapter) async {
+    final dir = Directory(chapter.path);
+    if (!dir.existsSync()) return [];
+
+    final files = dir
+        .listSync(followLinks: false)
+        .whereType<File>()
+        .where((f) => _isImageFile(f.path))
+        .toList();
+
+    files.sort((a, b) => _naturalCompare(p.basename(a.path), p.basename(b.path)));
+
+    return files.map((f) => f.path).toList();
+  }
+
+  // -------------------------------------------------------------------------
+  // Archive-based
+  // -------------------------------------------------------------------------
+
+  Future<List<String>> _loadArchivePages(ChapterItem chapter) async {
+    final extracted = await _ensureExtracted(chapter);
+    return extracted.pagePaths;
+  }
+
+  Future<_ExtractedChapter> _ensureExtracted(ChapterItem chapter) async {
+    final key = _chapterKey(chapter);
+
+    // Already extracted and on disk
+    if (_extracted.containsKey(key)) {
+      final existing = _extracted[key]!;
+      if (existing.tempDir.existsSync()) return existing;
+      // Temp dir was deleted — re-extract
+      _extracted.remove(key);
+    }
+
+    // Already extracting — wait for it
+    if (_pending.containsKey(key)) {
+      return _pending[key]!;
+    }
+
+    // Start extraction
+    final future = _extractChapter(chapter, key);
+    _pending[key] = future;
+
+    try {
+      final result = await future;
+      _extracted[key] = result;
+      return result;
+    } finally {
+      _pending.remove(key);
+    }
+  }
+
+  Future<_ExtractedChapter> _extractChapter(
+      ChapterItem chapter, String key) async {
+    final cacheDir = await getTemporaryDirectory();
+    final hash = key.hashCode.toRadixString(16);
+    final tempDir =
+        Directory(p.join(cacheDir.path, 'manga_pages', hash));
+
+    if (!tempDir.existsSync()) {
+      tempDir.createSync(recursive: true);
+    }
+
+    final archivePath = chapter.path;
+    final prefix = chapter.archiveEntryPrefix ?? '';
+
+    InputFileStream? inputStream;
+    try {
+      inputStream = InputFileStream(archivePath);
+      final archive = ZipDecoder().decodeStream(inputStream);
+
+      final imageEntries = archive.files.where((e) {
+        if (!e.isFile) return false;
+        if (!_isImageFile(e.name)) return false;
+        if (prefix.isNotEmpty && !e.name.startsWith(prefix)) return false;
+        // Skip entries that are deeper than one level below the prefix
+        final relative =
+            prefix.isNotEmpty ? e.name.substring(prefix.length) : e.name;
+        if (relative.contains('/')) return false;
+        return true;
+      }).toList();
+
+      imageEntries.sort((a, b) => _naturalCompare(a.name, b.name));
+
+      final pagePaths = <String>[];
+      for (var i = 0; i < imageEntries.length; i++) {
+        final entry = imageEntries[i];
+        final ext = p.extension(entry.name);
+        final outFile = File(p.join(tempDir.path, '${i.toString().padLeft(5, '0')}$ext'));
+        await outFile.writeAsBytes(entry.content);
+        pagePaths.add(outFile.path);
+      }
+
+      return _ExtractedChapter(tempDir: tempDir, pagePaths: pagePaths);
+    } catch (e) {
+      return _ExtractedChapter(tempDir: tempDir, pagePaths: []);
+    } finally {
+      inputStream?.closeSync();
+    }
+  }
+
+  String _chapterKey(ChapterItem chapter) =>
+      '${chapter.path}::${chapter.archiveEntryPrefix ?? ''}';
+}
+
+class _ExtractedChapter {
+  final Directory tempDir;
+  final List<String> pagePaths;
+
+  const _ExtractedChapter({
+    required this.tempDir,
+    required this.pagePaths,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Utilities (same as scanner_service — top-level for consistency)
+// ---------------------------------------------------------------------------
+
+bool _isImageFile(String name) {
+  final lower = name.toLowerCase();
+  return lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.png') ||
+      lower.endsWith('.webp');
+}
+
+int _naturalCompare(String a, String b) {
+  final reg = RegExp(r'(\d+)|(\D+)');
+  final aMatches = reg.allMatches(a).toList();
+  final bMatches = reg.allMatches(b).toList();
+
+  final len =
+      aMatches.length < bMatches.length ? aMatches.length : bMatches.length;
+  for (var i = 0; i < len; i++) {
+    final aSeg = aMatches[i].group(0)!;
+    final bSeg = bMatches[i].group(0)!;
+    final aNum = int.tryParse(aSeg);
+    final bNum = int.tryParse(bSeg);
+    if (aNum != null && bNum != null) {
+      final cmp = aNum.compareTo(bNum);
+      if (cmp != 0) return cmp;
+    } else {
+      final cmp = aSeg.compareTo(bSeg);
+      if (cmp != 0) return cmp;
+    }
+  }
+  return aMatches.length.compareTo(bMatches.length);
+}

@@ -44,6 +44,9 @@ dependencies:
   # Pinch-to-zoom
   photo_view: ^0.15.0
 
+  # Index-based scroll list (for accurate page jumping)
+  scrollable_positioned_list: ^0.3.8
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
