@@ -4,7 +4,7 @@ import '../main.dart';
 import '../services/auth_service.dart';
 import '../widgets/pin_keypad.dart';
 
-enum _SetupStep { enterPin, confirmPin }
+enum _SetupStep { verifyExistingPin, enterPin, confirmPin }
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -20,22 +20,42 @@ class _SetupScreenState extends State<SetupScreen> {
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
 
-
   final GlobalKey<PinKeypadState> _keypadKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _checkBiometric();
+    _init();
   }
 
-  Future<void> _checkBiometric() async {
-    final available = await AuthService.isBiometricAvailable();
-    if (mounted) setState(() => _biometricAvailable = available);
+  Future<void> _init() async {
+    final results = await Future.wait([
+      AuthService.hasPin(),
+      AuthService.isBiometricAvailable(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _step = (results[0] as bool)
+          ? _SetupStep.verifyExistingPin
+          : _SetupStep.enterPin;
+      _biometricAvailable = results[1] as bool;
+    });
   }
 
-  void _onPinComplete(String pin) async {
-    if (_step == _SetupStep.enterPin) {
+  Future<void> _onPinComplete(String pin) async {
+    if (_step == _SetupStep.verifyExistingPin) {
+      final valid = await AuthService.verifyPin(pin);
+      if (!mounted) return;
+      if (valid) {
+        setState(() {
+          _step = _SetupStep.enterPin;
+          _errorMessage = '';
+        });
+      } else {
+        setState(() => _errorMessage = 'Incorrect PIN. Try again.');
+      }
+      _keypadKey.currentState?.clear();
+    } else if (_step == _SetupStep.enterPin) {
       setState(() {
         _firstPin = pin;
         _step = _SetupStep.confirmPin;
@@ -45,9 +65,7 @@ class _SetupScreenState extends State<SetupScreen> {
     } else if (_step == _SetupStep.confirmPin) {
       if (pin == _firstPin) {
         await AuthService.savePin(pin);
-        if (_biometricEnabled) {
-          await AuthService.setBiometricEnabled(true);
-        }
+        if (_biometricEnabled) await AuthService.setBiometricEnabled(true);
         if (mounted) context.go('/library');
       } else {
         setState(() {
@@ -65,16 +83,18 @@ class _SetupScreenState extends State<SetupScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             children: [
               const SizedBox(height: 48),
               const Icon(Icons.lock_rounded, size: 48, color: AppTheme.primary),
               const SizedBox(height: 16),
-              const Text(
-                'Set Up Your PIN',
-                style: TextStyle(
+              Text(
+                _step == _SetupStep.verifyExistingPin
+                    ? 'Enter Current PIN'
+                    : 'Set Up Your PIN',
+                style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: AppTheme.onBackground,
@@ -82,9 +102,13 @@ class _SetupScreenState extends State<SetupScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _step == _SetupStep.enterPin
-                    ? 'Create a 4–6 digit PIN to protect your library'
-                    : 'Enter your PIN again to confirm',
+                switch (_step) {
+                  _SetupStep.verifyExistingPin =>
+                    'Enter your current PIN to continue',
+                  _SetupStep.enterPin =>
+                    'Create a 4-digit PIN to protect your library',
+                  _SetupStep.confirmPin => 'Enter your PIN again to confirm',
+                },
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: AppTheme.textSecondary),
               ),
@@ -100,11 +124,10 @@ class _SetupScreenState extends State<SetupScreen> {
               const SizedBox(height: 32),
               PinKeypad(
                 key: _keypadKey,
-                minLength: 4,
-                maxLength: 6,
+                pinLength: 4,
                 onComplete: _onPinComplete,
               ),
-              const Spacer(),
+              const SizedBox(height: 32),
               if (_biometricAvailable) ...[
                 _BiometricToggle(
                   value: _biometricEnabled,

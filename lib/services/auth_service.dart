@@ -37,9 +37,10 @@ class AuthService {
 
   static Future<bool> isBiometricAvailable() async {
     final canCheck = await _localAuth.canCheckBiometrics;
-    if (!canCheck) return false;
+    final isSupported = await _localAuth.isDeviceSupported();
+    if (!canCheck || !isSupported) return false;
     final biometrics = await _localAuth.getAvailableBiometrics();
-    return biometrics.contains(BiometricType.fingerprint);
+    return biometrics.isNotEmpty;
   }
 
   static Future<bool> isBiometricEnabled() async {

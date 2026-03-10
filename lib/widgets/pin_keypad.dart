@@ -5,15 +5,13 @@ import '../main.dart';
 /// Calls [onComplete] when [pinLength] digits have been entered.
 /// Calls [onChanged] on every keystroke (optional).
 class PinKeypad extends StatefulWidget {
-  final int minLength;
-  final int maxLength;
+  final int pinLength;
   final void Function(String pin) onComplete;
   final void Function(String pin)? onChanged;
 
   const PinKeypad({
     super.key,
-    this.minLength = 4,
-    this.maxLength = 6,
+    this.pinLength = 4,
     required this.onComplete,
     this.onChanged,
   });
@@ -30,10 +28,10 @@ class PinKeypadState extends State<PinKeypad> {
   void clear() => setState(() => _pin = '');
 
   void _press(String digit) {
-    if (_pin.length >= widget.maxLength) return;
+    if (_pin.length >= widget.pinLength) return;
     setState(() => _pin += digit);
     widget.onChanged?.call(_pin);
-    if (_pin.length >= widget.minLength) {
+    if (_pin.length == widget.pinLength) {
       widget.onComplete(_pin);
     }
   }
@@ -49,7 +47,7 @@ class PinKeypadState extends State<PinKeypad> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _PinDots(entered: _pin.length, max: widget.maxLength),
+        _PinDots(entered: _pin.length, total: widget.pinLength),
         const SizedBox(height: 32),
         _buildGrid(),
       ],
@@ -90,15 +88,15 @@ class PinKeypadState extends State<PinKeypad> {
 
 class _PinDots extends StatelessWidget {
   final int entered;
-  final int max;
+  final int total;
 
-  const _PinDots({required this.entered, required this.max});
+  const _PinDots({required this.entered, required this.total});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(max, (i) {
+      children: List.generate(total, (i) {
         final filled = i < entered;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),

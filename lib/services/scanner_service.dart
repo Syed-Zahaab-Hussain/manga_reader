@@ -331,11 +331,15 @@ MangaItem? _scanArchiveManga(File file) {
   final title = p.basenameWithoutExtension(archivePath);
 
   Archive archive;
+  InputFileStream? inputStream;
   try {
-    final bytes = file.readAsBytesSync();
-    archive = ZipDecoder().decodeBytes(bytes);
+    inputStream = InputFileStream(file.path);
+    archive = ZipDecoder().decodeStream(inputStream);
   } catch (_) {
+    inputStream?.closeSync();
     return null; // corrupted — skip
+  } finally {
+    inputStream?.closeSync();
   }
 
   // Filter image entries

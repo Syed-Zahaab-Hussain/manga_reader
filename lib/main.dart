@@ -8,6 +8,11 @@ import 'screens/library_screen.dart';
 import 'screens/detail_screen.dart';
 import 'screens/reader_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/auth_service.dart';
+
+class AppLock {
+  static bool suppressNext = false;
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,16 +38,97 @@ final _router = GoRouter(
   ],
 );
 
-class MangaReaderApp extends StatelessWidget {
+class MangaReaderApp extends StatefulWidget {
   const MangaReaderApp({super.key});
 
   @override
+  State<MangaReaderApp> createState() => _MangaReaderAppState();
+}
+
+class _MangaReaderAppState extends State<MangaReaderApp>
+    with WidgetsBindingObserver {
+  bool _wasInBackground = false;
+  bool _showPrivacyOverlay = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _wasInBackground = true;
+      // Show overlay immediately so content is hidden in app switcher
+      // and during the brief moment before the lock screen appears.
+      setState(() => _showPrivacyOverlay = true);
+    } else if (state == AppLifecycleState.resumed && _wasInBackground) {
+      _wasInBackground = false;
+      _lockIfNeeded();
+    }
+  }
+
+  Future<void> _lockIfNeeded() async {
+    if (AppLock.suppressNext) {
+      AppLock.suppressNext = false;
+      if (mounted) setState(() => _showPrivacyOverlay = false);
+      return;
+    }
+    final hasPin = await AuthService.hasPin();
+    if (!mounted) return;
+    if (hasPin) {
+      _router.go('/login');
+      // Remove overlay after one frame so the login screen is rendered first,
+      // preventing any flash of the previous screen.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _showPrivacyOverlay = false);
+      });
+    } else {
+      setState(() => _showPrivacyOverlay = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'Manga Reader',
-      debugShowCheckedModeBanner: false,
-      routerConfig: _router,
-      theme: AppTheme.dark,
+    return Stack(
+      textDirection: TextDirection.ltr,
+      children: [
+        MaterialApp.router(
+          title: 'Manga Reader',
+          debugShowCheckedModeBanner: false,
+          routerConfig: _router,
+          theme: AppTheme.dark,
+        ),
+        if (_showPrivacyOverlay)
+          const _PrivacyOverlay(),
+      ],
+    );
+  }
+}
+
+class _PrivacyOverlay extends StatelessWidget {
+  const _PrivacyOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        color: AppTheme.background,
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.menu_book_rounded,
+          size: 64,
+          color: AppTheme.primary,
+        ),
+      ),
     );
   }
 }

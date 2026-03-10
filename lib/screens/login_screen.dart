@@ -62,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             children: [
@@ -107,11 +107,10 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 32),
               PinKeypad(
                 key: _keypadKey,
-                minLength: 4,
-                maxLength: 6,
+                pinLength: 4,
                 onComplete: _onPinComplete,
               ),
-              const Spacer(),
+              const SizedBox(height: 32),
               if (_biometricAvailable && _biometricEnabled)
                 _BiometricButton(onTap: _tryBiometric),
               const SizedBox(height: 32),
