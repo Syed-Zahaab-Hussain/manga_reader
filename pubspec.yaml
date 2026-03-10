@@ -1,5 +1,5 @@
 name: manga_reader
-description: "A new Flutter project."
+description: "A manga and comic reader app for locally stored files."
 publish_to: 'none'
 version: 0.1.0
 
@@ -10,6 +10,40 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Navigation
+  go_router: ^14.0.0
+
+  # Secure storage (PIN)
+  flutter_secure_storage: ^9.2.2
+
+  # Biometric authentication
+  local_auth: ^2.3.0
+
+  # File/folder picker
+  file_picker: ^8.1.7
+
+  # Archive (ZIP/CBZ)
+  archive: ^4.0.4
+
+  # Image caching
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+
+  # Shared preferences (settings)
+  shared_preferences: ^2.3.3
+
+  # Path utilities
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # Permission handling
+  permission_handler: ^11.3.1
+
+  # Natural sort is implemented inline in the scanner service (pure Dart)
+
+  # Pinch-to-zoom
+  photo_view: ^0.15.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -17,3 +51,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
