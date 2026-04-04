@@ -14,6 +14,7 @@ class AppPreferences {
   static const mangaFolderPathKey = 'manga_folder_path';
   static const readingDirectionKey = 'reading_direction';
   static const horizontalPageFitKey = 'horizontal_page_fit';
+  static const horizontalImageWidthKey = 'horizontal_image_width';
 
   static Future<String?> getMangaFolderPath() async {
     final prefs = await SharedPreferences.getInstance();
@@ -51,5 +52,20 @@ class AppPreferences {
   static Future<void> setHorizontalPageFit(HorizontalPageFit fit) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(horizontalPageFitKey, fit.name);
+  }
+
+  static Future<double> getReaderImageWidth() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getDouble(horizontalImageWidthKey) ?? 1.0)
+        .clamp(0.4, 1.0)
+        .toDouble();
+  }
+
+  static Future<void> setReaderImageWidth(double width) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(
+      horizontalImageWidthKey,
+      width.clamp(0.4, 1.0).toDouble(),
+    );
   }
 }

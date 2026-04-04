@@ -32,6 +32,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   List<_ReaderPageData> _pages = [];
   bool _loading = true;
   int? _zoomedPageIndex;
+  bool _zoomEnabled = false;
 
   final ItemScrollController _scrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener =
@@ -49,6 +50,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Offset? _tapDownPosition;
   ReadingDirection _readingDirection = ReadingDirection.vertical;
   HorizontalPageFit _horizontalPageFit = HorizontalPageFit.width;
+  double _imageWidth = 1.0;
 
   bool get _isHorizontal =>
       _readingDirection != ReadingDirection.vertical;
@@ -88,11 +90,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final results = await Future.wait([
       AppPreferences.getReadingDirection(),
       AppPreferences.getHorizontalPageFit(),
+      AppPreferences.getReaderImageWidth(),
     ]);
     if (!mounted) return;
     setState(() {
       _readingDirection = results[0] as ReadingDirection;
       _horizontalPageFit = results[1] as HorizontalPageFit;
+      _imageWidth = results[2] as double;
     });
     await _loadChapter(jumpToPage: _initialPage);
   }
@@ -299,6 +303,249 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  Future<void> _showImageWidthDialog() async {
+    var width = _imageWidth;
+    final controller = TextEditingController(
+      text: (width * 100).round().toString(),
+    );
+
+    final selected = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void updateWidth(double value) {
+              final clamped = value.clamp(40.0, 100.0).toDouble();
+              setSheetState(() => width = clamped / 100);
+              controller.text = clamped.round().toString();
+              controller.selection = TextSelection.collapsed(
+                offset: controller.text.length,
+              );
+            }
+
+            return AnimatedPadding(
+              duration: const Duration(milliseconds: 160),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Image width',
+                        style: TextStyle(
+                          color: AppTheme.onBackground,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: width * 100,
+                              min: 40,
+                              max: 100,
+                              divisions: 60,
+                              label: '${(width * 100).round()}%',
+                              onChanged: updateWidth,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 76,
+                            child: TextField(
+                              controller: controller,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              style: const TextStyle(
+                                color: AppTheme.onBackground,
+                              ),
+                              decoration: const InputDecoration(
+                                suffixText: '%',
+                                isDense: true,
+                              ),
+                              onChanged: (value) {
+                                final percent = double.tryParse(value);
+                                if (percent != null &&
+                                    percent >= 40 &&
+                                    percent <= 100) {
+                                  setSheetState(() => width = percent / 100);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => updateWidth(100),
+                            child: const Text('Reset'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(width),
+                            child: const Text('Apply'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+
+    if (selected == null || !mounted) return;
+    await AppPreferences.setReaderImageWidth(selected);
+    if (!mounted) return;
+    setState(() => _imageWidth = selected);
+    _scheduleHideTopBar();
+  }
+
+  Future<void> _showReaderSettings() async {
+    _hideTimer?.cancel();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void togglePageLabels(bool value) {
+              setState(() => _pageLabelsVisible = value);
+              setSheetState(() {});
+            }
+
+            void toggleZoom(bool value) {
+              setState(() {
+                _zoomEnabled = value;
+                if (!value) {
+                  _zoomedPageIndex = null;
+                }
+              });
+              setSheetState(() {});
+            }
+
+            return SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 0, 12, 8),
+                      child: Text(
+                        'Reader settings',
+                        style: TextStyle(
+                          color: AppTheme.onBackground,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.zoom_in),
+                      title: const Text('Zoom'),
+                      subtitle: Text(
+                        _zoomEnabled
+                            ? 'Pinch and pan enabled'
+                            : 'Natural page scrolling enabled',
+                      ),
+                      value: _zoomEnabled,
+                      onChanged: toggleZoom,
+                    ),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.format_list_numbered),
+                      title: const Text('Page numbers'),
+                      value: _pageLabelsVisible,
+                      onChanged: togglePageLabels,
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        _isHorizontal
+                            ? Icons.view_agenda_outlined
+                            : Icons.swipe_outlined,
+                      ),
+                      title: const Text('Reading mode'),
+                      subtitle: Text(
+                        _isHorizontal
+                            ? 'Horizontal pages'
+                            : 'Vertical scrolling',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(_toggleReadingDirection());
+                      },
+                    ),
+                    if (_isHorizontal)
+                      ListTile(
+                        leading: Icon(
+                          _fitHorizontalWidth
+                              ? Icons.fit_screen
+                              : Icons.fullscreen,
+                        ),
+                        title: const Text('Page fit'),
+                        subtitle: Text(
+                          _fitHorizontalWidth
+                              ? 'Fit page width'
+                              : 'Fit whole page',
+                        ),
+                        trailing: const Icon(Icons.swap_horiz),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          unawaited(_toggleHorizontalPageFit());
+                        },
+                      ),
+                    ListTile(
+                      leading: const Icon(Icons.width_normal),
+                      title: const Text('Image width'),
+                      subtitle:
+                          Text('${(_imageWidth * 100).round()}% of screen'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            unawaited(_showImageWidthDialog());
+                          }
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (mounted) {
+      _scheduleHideTopBar();
+    }
+  }
+
   Future<void> _toggleReadingDirection() async {
     final nextDirection = _readingDirection == ReadingDirection.vertical
         ? ReadingDirection.leftToRight
@@ -484,8 +731,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
           pageIndex: index,
           totalPages: _pages.length,
           showLabel: _pageLabelsVisible,
+          zoomEnabled: _zoomEnabled,
           zoomTolerance: _zoomTolerance,
-          targetWidth: MediaQuery.sizeOf(context).width,
+          targetWidth: MediaQuery.sizeOf(context).width * _imageWidth,
           fitToScreen: false,
           allowPageScroll: false,
           onZoomChanged: (isZoomed) => _onPageZoomChanged(index, isZoomed),
@@ -512,8 +760,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
             pageIndex: index,
             totalPages: _pages.length,
             showLabel: _pageLabelsVisible,
+            zoomEnabled: _zoomEnabled,
             zoomTolerance: _zoomTolerance,
-            targetWidth: MediaQuery.sizeOf(context).width,
+            targetWidth: MediaQuery.sizeOf(context).width * _imageWidth,
             fitToScreen: !_fitHorizontalWidth,
             allowPageScroll: _fitHorizontalWidth,
             onZoomChanged: (isZoomed) =>
@@ -597,45 +846,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: Icon(
-                    _pageLabelsVisible
-                        ? Icons.format_list_numbered
-                        : Icons.format_list_numbered_rtl,
-                    color: _pageLabelsVisible ? Colors.white : Colors.white38,
-                  ),
-                  tooltip: _pageLabelsVisible
-                      ? 'Hide page numbers'
-                      : 'Show page numbers',
-                  onPressed: () {
-                    setState(() => _pageLabelsVisible = !_pageLabelsVisible);
-                    _scheduleHideTopBar();
-                  },
-                ),
-                IconButton(
-                  icon: Icon(
-                    _isHorizontal
-                        ? Icons.view_agenda_outlined
-                        : Icons.swipe_outlined,
+                  icon: const Icon(
+                    Icons.tune_rounded,
                     color: Colors.white,
                   ),
-                  tooltip: _isHorizontal
-                      ? 'Switch to vertical scroll'
-                      : 'Switch to horizontal pages',
-                  onPressed: _toggleReadingDirection,
+                  tooltip: 'Reader settings',
+                  onPressed: _showReaderSettings,
                 ),
-                if (_isHorizontal)
-                  IconButton(
-                    icon: Icon(
-                      _fitHorizontalWidth
-                          ? Icons.fit_screen
-                          : Icons.fullscreen,
-                      color: Colors.white,
-                    ),
-                    tooltip: _fitHorizontalWidth
-                        ? 'Fit whole page'
-                        : 'Fit page width',
-                    onPressed: _toggleHorizontalPageFit,
-                  ),
                 const SizedBox(width: 4),
                 IconButton(
                   icon: const Icon(
@@ -691,6 +908,7 @@ class _PageWidget extends StatefulWidget {
   final int pageIndex;
   final int totalPages;
   final bool showLabel;
+  final bool zoomEnabled;
   final double zoomTolerance;
   final double targetWidth;
   final bool fitToScreen;
@@ -704,6 +922,7 @@ class _PageWidget extends StatefulWidget {
     required this.pageIndex,
     required this.totalPages,
     required this.showLabel,
+    required this.zoomEnabled,
     required this.zoomTolerance,
     required this.targetWidth,
     required this.fitToScreen,
@@ -715,20 +934,13 @@ class _PageWidget extends StatefulWidget {
   State<_PageWidget> createState() => _PageWidgetState();
 }
 
-class _PageWidgetState extends State<_PageWidget>
-    with SingleTickerProviderStateMixin {
+class _PageWidgetState extends State<_PageWidget> {
   File? _file;
   bool _exists = false;
   bool _isZoomed = false;
 
   final TransformationController _transformController =
       TransformationController();
-  late final AnimationController _animController;
-  Animation<Matrix4>? _animation;
-
-  Offset _doubleTapPosition = Offset.zero;
-
-  static const double _zoomedScale = 2.5;
 
   @override
   void initState() {
@@ -736,14 +948,14 @@ class _PageWidgetState extends State<_PageWidget>
     _file = File(widget.filePath);
     _exists = _file!.existsSync();
     _transformController.addListener(_syncZoomState);
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    )..addListener(() {
-        if (_animation != null) {
-          _transformController.value = _animation!.value;
-        }
-      });
+  }
+
+  @override
+  void didUpdateWidget(covariant _PageWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.zoomEnabled && !widget.zoomEnabled) {
+      _resetTransform();
+    }
   }
 
   @override
@@ -753,7 +965,6 @@ class _PageWidgetState extends State<_PageWidget>
     }
     _transformController.removeListener(_syncZoomState);
     _transformController.dispose();
-    _animController.dispose();
     super.dispose();
   }
 
@@ -769,41 +980,6 @@ class _PageWidgetState extends State<_PageWidget>
   void _resetTransform() {
     if (_transformController.value == Matrix4.identity()) return;
     _transformController.value = Matrix4.identity();
-  }
-
-  void _onDoubleTapDown(TapDownDetails details) {
-    _doubleTapPosition = details.localPosition;
-  }
-
-  void _onDoubleTap() {
-    final Matrix4 target;
-
-    if (_isZoomed) {
-      target = Matrix4.identity();
-    } else {
-      final x = -_doubleTapPosition.dx * (_zoomedScale - 1);
-      final y = -_doubleTapPosition.dy * (_zoomedScale - 1);
-      target = Matrix4.identity()
-        ..translateByDouble(x, y, 0, 1)
-        ..scaleByDouble(_zoomedScale, _zoomedScale, 1, 1);
-    }
-
-    _animation = Matrix4Tween(
-      begin: _transformController.value,
-      end: target,
-    ).animate(CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeInOut,
-    ));
-
-    _animController
-      ..reset()
-      ..forward().whenComplete(() {
-        if (!mounted) return;
-        if (_currentScale <= 1.0 + widget.zoomTolerance) {
-          _resetTransform();
-        }
-      });
   }
 
   Widget _buildPageLabel() {
@@ -857,17 +1033,24 @@ class _PageWidgetState extends State<_PageWidget>
     );
 
     if (!widget.fitToScreen) {
-      return RepaintBoundary(
-        child: AspectRatio(
-          aspectRatio: widget.aspectRatio,
-          child: image,
+      return Center(
+        child: RepaintBoundary(
+          child: SizedBox(
+            width: widget.targetWidth,
+            child: AspectRatio(
+              aspectRatio: widget.aspectRatio,
+              child: image,
+            ),
+          ),
         ),
       );
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxWidth = constraints.maxWidth;
+        final maxWidth = constraints.maxWidth < widget.targetWidth
+            ? constraints.maxWidth
+            : widget.targetWidth;
         final maxHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight
             : MediaQuery.sizeOf(context).height;
@@ -890,30 +1073,56 @@ class _PageWidgetState extends State<_PageWidget>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.zoomEnabled) {
+      if (widget.allowPageScroll) {
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            children: [
+              _buildImage(),
+              _buildPageLabel(),
+            ],
+          ),
+        );
+      }
+
+      if (widget.fitToScreen) {
+        return Column(
+          children: [
+            Expanded(child: _buildImage()),
+            _buildPageLabel(),
+          ],
+        );
+      }
+
+      return Column(
+        children: [
+          _buildImage(),
+          _buildPageLabel(),
+        ],
+      );
+    }
+
     if (widget.allowPageScroll) {
-      return GestureDetector(
-        onDoubleTapDown: _onDoubleTapDown,
-        onDoubleTap: _onDoubleTap,
-        child: InteractiveViewer(
-          transformationController: _transformController,
-          minScale: 1.0,
-          maxScale: 4.0,
-          onInteractionEnd: (_) {
-            if (_currentScale <= 1.0 + widget.zoomTolerance) {
-              _resetTransform();
-            }
-          },
-          panEnabled: _isZoomed,
-          child: SingleChildScrollView(
-            physics: _isZoomed
-                ? const NeverScrollableScrollPhysics()
-                : const ClampingScrollPhysics(),
-            child: Column(
-              children: [
-                _buildImage(),
-                _buildPageLabel(),
-              ],
-            ),
+      return InteractiveViewer(
+        transformationController: _transformController,
+        minScale: 1.0,
+        maxScale: 4.0,
+        onInteractionEnd: (_) {
+          if (_currentScale <= 1.0 + widget.zoomTolerance) {
+            _resetTransform();
+          }
+        },
+        panEnabled: _isZoomed,
+        child: SingleChildScrollView(
+          physics: _isZoomed
+              ? const NeverScrollableScrollPhysics()
+              : const ClampingScrollPhysics(),
+          child: Column(
+            children: [
+              _buildImage(),
+              _buildPageLabel(),
+            ],
           ),
         ),
       );
@@ -923,21 +1132,17 @@ class _PageWidgetState extends State<_PageWidget>
       return Column(
         children: [
           Expanded(
-            child: GestureDetector(
-              onDoubleTapDown: _onDoubleTapDown,
-              onDoubleTap: _onDoubleTap,
-              child: InteractiveViewer(
-                transformationController: _transformController,
-                minScale: 1.0,
-                maxScale: 4.0,
-                onInteractionEnd: (_) {
-                  if (_currentScale <= 1.0 + widget.zoomTolerance) {
-                    _resetTransform();
-                  }
-                },
-                panEnabled: _isZoomed,
-                child: _buildImage(),
-              ),
+            child: InteractiveViewer(
+              transformationController: _transformController,
+              minScale: 1.0,
+              maxScale: 4.0,
+              onInteractionEnd: (_) {
+                if (_currentScale <= 1.0 + widget.zoomTolerance) {
+                  _resetTransform();
+                }
+              },
+              panEnabled: _isZoomed,
+              child: _buildImage(),
             ),
           ),
           _buildPageLabel(),
@@ -947,21 +1152,17 @@ class _PageWidgetState extends State<_PageWidget>
 
     return Column(
       children: [
-        GestureDetector(
-          onDoubleTapDown: _onDoubleTapDown,
-          onDoubleTap: _onDoubleTap,
-          child: InteractiveViewer(
-            transformationController: _transformController,
-            minScale: 1.0,
-            maxScale: 4.0,
-            onInteractionEnd: (_) {
-              if (_currentScale <= 1.0 + widget.zoomTolerance) {
-                _resetTransform();
-              }
-            },
-            panEnabled: _isZoomed,
-            child: _buildImage(),
-          ),
+        InteractiveViewer(
+          transformationController: _transformController,
+          minScale: 1.0,
+          maxScale: 4.0,
+          onInteractionEnd: (_) {
+            if (_currentScale <= 1.0 + widget.zoomTolerance) {
+              _resetTransform();
+            }
+          },
+          panEnabled: _isZoomed,
+          child: _buildImage(),
         ),
         _buildPageLabel(),
       ],
