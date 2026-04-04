@@ -26,6 +26,29 @@ class ReadingProgress {
     required this.lastRead,
   });
 
+  ReadingProgress copyWith({
+    String? mangaId,
+    String? mangaTitle,
+    String? coverImagePath,
+    bool? coverIsInArchive,
+    String? coverArchiveEntry,
+    int? chapterIndex,
+    int? pageIndex,
+    int? totalChapters,
+    DateTime? lastRead,
+  }) =>
+      ReadingProgress(
+        mangaId: mangaId ?? this.mangaId,
+        mangaTitle: mangaTitle ?? this.mangaTitle,
+        coverImagePath: coverImagePath ?? this.coverImagePath,
+        coverIsInArchive: coverIsInArchive ?? this.coverIsInArchive,
+        coverArchiveEntry: coverArchiveEntry ?? this.coverArchiveEntry,
+        chapterIndex: chapterIndex ?? this.chapterIndex,
+        pageIndex: pageIndex ?? this.pageIndex,
+        totalChapters: totalChapters ?? this.totalChapters,
+        lastRead: lastRead ?? this.lastRead,
+      );
+
   Map<String, dynamic> toJson() => {
         'mangaId': mangaId,
         'mangaTitle': mangaTitle,

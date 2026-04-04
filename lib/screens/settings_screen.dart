@@ -1,9 +1,9 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
+import '../services/app_preferences.dart';
 import '../services/auth_service.dart';
 import '../services/progress_service.dart';
 import '../services/thumbnail_service.dart';
@@ -31,15 +31,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final results = await Future.wait([
-      SharedPreferences.getInstance(),
+      AppPreferences.getMangaFolderPath(),
       AuthService.isBiometricAvailable(),
       AuthService.isBiometricEnabled(),
       ThumbnailService.instance.getCacheSizeBytes(),
     ]);
     if (!mounted) return;
     setState(() {
-      _folderPath =
-          (results[0] as SharedPreferences).getString('manga_folder_path');
+      _folderPath = results[0] as String?;
       _biometricAvailable = results[1] as bool;
       _biometricEnabled = results[2] as bool;
       _cacheSizeBytes = results[3] as int;
@@ -61,8 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (result == null) AppLock.suppressNext = false;
     if (result == null || !mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('manga_folder_path', result);
+    await AppPreferences.setMangaFolderPath(result);
     if (!mounted) return;
 
     setState(() => _folderPath = result);

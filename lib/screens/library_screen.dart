@@ -4,15 +4,15 @@ import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../utils/storage_permission.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../models/manga_item.dart';
 import '../models/reading_progress.dart';
+import '../services/app_preferences.dart';
 import '../services/library_cache_service.dart';
 import '../services/progress_service.dart';
 import '../services/scanner_service.dart';
+import '../utils/storage_permission.dart';
 import '../widgets/manga_card.dart';
 import '../widgets/recently_read_section.dart';
 
@@ -132,23 +132,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _loadFolderAndCache() async {
     final results = await Future.wait([
-      SharedPreferences.getInstance(),
+      AppPreferences.getMangaFolderPath(),
       LibraryCacheService.load(),
       ProgressService.getAllAsMap(),
     ]);
     if (!mounted) return;
 
-    final prefs = results[0] as SharedPreferences;
+    final path = results[0] as String?;
     final cached = results[1] as List<MangaItem>;
     final progressMap = results[2] as Map<String, ReadingProgress>;
-    final path = prefs.getString('manga_folder_path');
 
-    // Load recently read filtered to this folder
     final allRecent = await ProgressService.getRecentlyRead(limit: 8);
     if (!mounted) return;
-    final filtered = path == null
-        ? <ReadingProgress>[]
-        : allRecent.where((p) => p.mangaId.startsWith(path)).toList();
+    final filtered = _filterRecentForFolder(allRecent, path);
 
     if (cached.isNotEmpty) {
       setState(() {
@@ -181,14 +177,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final allRecent = results[0] as List<ReadingProgress>;
     final progressMap = results[1] as Map<String, ReadingProgress>;
 
-    // Filter recently read to only show manga from the current folder
-    final folder = _folderPath;
-    final filtered = folder == null
-        ? <ReadingProgress>[]
-        : allRecent.where((p) => p.mangaId.startsWith(folder)).toList();
-
     setState(() {
-      _recentlyRead = filtered;
+      _recentlyRead = _filterRecentForFolder(allRecent, _folderPath);
       _progressMap = progressMap;
     });
   }
@@ -303,40 +293,56 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _filteredManga = list;
   }
 
-  Future<void> _triggerRefresh() async {
-    // Also pick up folder changes (e.g. set during first-time setup)
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    final newPath = prefs.getString('manga_folder_path');
-    if (newPath != _folderPath) {
-      setState(() => _folderPath = newPath);
-      LibraryCacheService.clear();
+  List<ReadingProgress> _filterRecentForFolder(
+    List<ReadingProgress> items,
+    String? folderPath,
+  ) {
+    if (folderPath == null) return <ReadingProgress>[];
+    return items.where((p) => p.mangaId.startsWith(folderPath)).toList();
+  }
+
+  void _clearLibraryState() {
+    setState(() {
+      _allManga = [];
+      _filteredManga = [];
+      _recentlyRead = [];
+      _folderPath = null;
+    });
+  }
+
+  Future<String?> _syncFolderPath() async {
+    final newPath = await AppPreferences.getMangaFolderPath();
+    if (!mounted) return null;
+    if (newPath == _folderPath) return newPath;
+
+    setState(() => _folderPath = newPath);
+    await LibraryCacheService.clear();
+
+    if (newPath == null) {
+      _clearLibraryState();
     }
+
+    return newPath;
+  }
+
+  Future<void> _triggerRefresh() async {
+    final path = await _syncFolderPath();
+    if (!mounted) return;
     await _loadRecentlyRead();
-    if (_folderPath != null) {
-      _startScan(_folderPath!);
+    if (path != null) {
+      _startScan(path);
     }
   }
 
   Future<void> _openSettingsAndReload() async {
     await context.push('/settings');
     if (!mounted) return;
-    _loadRecentlyRead();
-    final prefs = await SharedPreferences.getInstance();
+    await _loadRecentlyRead();
+    final previousPath = _folderPath;
+    final newPath = await _syncFolderPath();
     if (!mounted) return;
-    final newPath = prefs.getString('manga_folder_path');
-    if (newPath != _folderPath) {
-      setState(() => _folderPath = newPath);
-      LibraryCacheService.clear();
-      if (newPath != null) {
-        _startScan(newPath);
-      } else {
-        setState(() {
-          _allManga = [];
-          _filteredManga = [];
-          _folderPath = null;
-        });
-      }
+    if (newPath != null && newPath != previousPath) {
+      _startScan(newPath);
     }
   }
 

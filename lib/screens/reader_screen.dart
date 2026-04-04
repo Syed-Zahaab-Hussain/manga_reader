@@ -20,12 +20,15 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
+  static const double _zoomTolerance = 0.02;
+
   late final MangaItem _manga;
   late int _chapterIndex;
   int _initialPage = 0;
 
   List<String> _pagePaths = [];
   bool _loading = true;
+  int? _zoomedPageIndex;
 
   // Scroll & position tracking
   final ItemScrollController _scrollController = ItemScrollController();
@@ -78,6 +81,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _loading = true;
       _preloadedNext = false;
+      _zoomedPageIndex = null;
     });
 
     final chapter = _manga.chapters[_chapterIndex];
@@ -184,6 +188,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _goToChapter(int index) {
     if (index < 0 || index >= _manga.chapters.length) return;
     _saveProgressNow();
+    setState(() => _zoomedPageIndex = null);
 
     final oldChapter = _manga.chapters[_chapterIndex];
     _chapterIndex = index;
@@ -191,6 +196,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _loadChapter(jumpToPage: 0);
 
     PageLoaderService.instance.releaseChapter(oldChapter);
+  }
+
+  void _onPageZoomChanged(int pageIndex, bool isZoomed) {
+    if (!mounted) return;
+    if (isZoomed) {
+      if (_zoomedPageIndex != pageIndex) {
+        setState(() => _zoomedPageIndex = pageIndex);
+      }
+      return;
+    }
+
+    if (_zoomedPageIndex == pageIndex) {
+      setState(() => _zoomedPageIndex = null);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -254,39 +273,56 @@ class _ReaderScreenState extends State<ReaderScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          if (_loading)
-            const Center(
-              child: CircularProgressIndicator(color: AppTheme.primary),
-            )
-          else if (_pagePaths.isEmpty)
-            const Center(
-              child: Text(
-                'No pages found',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
-              ),
-            )
-          else
-            GestureDetector(
-              onTap: _toggleTopBar,
-              child: ScrollablePositionedList.builder(
-                itemScrollController: _scrollController,
-                itemPositionsListener: _positionsListener,
-                initialScrollIndex: _initialPage,
-                itemCount: _pagePaths.length,
-                addAutomaticKeepAlives: false,
-                itemBuilder: (context, index) {
-                  return _PageWidget(
-                    filePath: _pagePaths[index],
-                    pageIndex: index,
-                    totalPages: _pagePaths.length,
-                    showLabel: _pageLabelsVisible,
-                  );
-                },
-              ),
-            ),
+          SafeArea(
+            top: false,
+            child: _buildReaderBody(),
+          ),
 
           if (_topBarVisible) _buildTopBar(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildReaderBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppTheme.primary),
+      );
+    }
+
+    if (_pagePaths.isEmpty) {
+      return const Center(
+        child: Text(
+          'No pages found',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: _toggleTopBar,
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _scrollController,
+        itemPositionsListener: _positionsListener,
+        initialScrollIndex: _initialPage,
+        itemCount: _pagePaths.length,
+        physics: _zoomedPageIndex == null
+            ? const AlwaysScrollableScrollPhysics()
+            : const NeverScrollableScrollPhysics(),
+        addAutomaticKeepAlives: false,
+        itemBuilder: (context, index) {
+          return _PageWidget(
+            key: ValueKey('${_chapterIndex}_$index'),
+            filePath: _pagePaths[index],
+            pageIndex: index,
+            totalPages: _pagePaths.length,
+            showLabel: _pageLabelsVisible,
+            zoomTolerance: _zoomTolerance,
+            onZoomChanged: (isZoomed) =>
+                _onPageZoomChanged(index, isZoomed),
+          );
+        },
       ),
     );
   }
@@ -413,12 +449,17 @@ class _PageWidget extends StatefulWidget {
   final int pageIndex;
   final int totalPages;
   final bool showLabel;
+  final double zoomTolerance;
+  final ValueChanged<bool> onZoomChanged;
 
   const _PageWidget({
+    super.key,
     required this.filePath,
     required this.pageIndex,
     required this.totalPages,
     required this.showLabel,
+    required this.zoomTolerance,
+    required this.onZoomChanged,
   });
 
   @override
@@ -429,6 +470,7 @@ class _PageWidgetState extends State<_PageWidget>
     with SingleTickerProviderStateMixin {
   File? _file;
   bool _exists = false;
+  bool _isZoomed = false;
 
   final TransformationController _transformController =
       TransformationController();
@@ -445,6 +487,7 @@ class _PageWidgetState extends State<_PageWidget>
     super.initState();
     _file = File(widget.filePath);
     _exists = _file!.existsSync();
+    _transformController.addListener(_syncZoomState);
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -457,13 +500,28 @@ class _PageWidgetState extends State<_PageWidget>
 
   @override
   void dispose() {
+    if (_isZoomed) {
+      widget.onZoomChanged(false);
+    }
+    _transformController.removeListener(_syncZoomState);
     _transformController.dispose();
     _animController.dispose();
     super.dispose();
   }
 
-  bool get _isZoomed =>
-      _transformController.value != Matrix4.identity();
+  double get _currentScale => _transformController.value.getMaxScaleOnAxis();
+
+  void _syncZoomState() {
+    final isZoomed = _currentScale > 1.0 + widget.zoomTolerance;
+    if (isZoomed == _isZoomed) return;
+    _isZoomed = isZoomed;
+    widget.onZoomChanged(isZoomed);
+  }
+
+  void _resetTransform() {
+    if (_transformController.value == Matrix4.identity()) return;
+    _transformController.value = Matrix4.identity();
+  }
 
   void _onDoubleTapDown(TapDownDetails details) {
     _doubleTapPosition = details.localPosition;
@@ -479,8 +537,8 @@ class _PageWidgetState extends State<_PageWidget>
       final x = -_doubleTapPosition.dx * (_zoomedScale - 1);
       final y = -_doubleTapPosition.dy * (_zoomedScale - 1);
       target = Matrix4.identity()
-        ..translate(x, y)
-        ..scale(_zoomedScale);
+        ..translateByDouble(x, y, 0, 1)
+        ..scaleByDouble(_zoomedScale, _zoomedScale, 1, 1);
     }
 
     _animation = Matrix4Tween(
@@ -493,7 +551,12 @@ class _PageWidgetState extends State<_PageWidget>
 
     _animController
       ..reset()
-      ..forward();
+      ..forward().whenComplete(() {
+        if (!mounted) return;
+        if (_currentScale <= 1.0 + widget.zoomTolerance) {
+          _resetTransform();
+        }
+      });
   }
 
   Widget _buildPageLabel() {
@@ -561,6 +624,11 @@ class _PageWidgetState extends State<_PageWidget>
             transformationController: _transformController,
             minScale: 1.0,
             maxScale: 4.0,
+            onInteractionEnd: (_) {
+              if (_currentScale <= 1.0 + widget.zoomTolerance) {
+                _resetTransform();
+              }
+            },
             // Only pan when zoomed in; vertical drags scroll between pages otherwise
             panEnabled: _isZoomed,
             child: _buildImage(),

@@ -1,23 +1,29 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import '../models/reading_progress.dart';
+import 'app_preferences.dart';
 
 class ProgressService {
-  static const String _prefix = 'progress:';
+  static const String _fileName = '.manga_reader_progress.json';
 
   static Future<void> save(ReadingProgress progress) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefix + progress.mangaId, progress.toJsonString());
+    final file = await _getProgressFile();
+    if (file == null) return;
+
+    final entries = await _readStoredEntries(file);
+    final storedProgress = await _toStoredProgress(progress);
+    if (storedProgress == null) return;
+
+    entries.removeWhere((item) => item.mangaId == storedProgress.mangaId);
+    entries.add(storedProgress);
+    await _writeStoredEntries(file, entries);
   }
 
   static Future<ReadingProgress?> get(String mangaId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefix + mangaId);
-    if (raw == null) return null;
-    try {
-      return ReadingProgress.fromJsonString(raw);
-    } catch (_) {
-      return null;
-    }
+    final map = await getAllAsMap();
+    return map[mangaId];
   }
 
   static Future<List<ReadingProgress>> getRecentlyRead({int limit = 8}) async {
@@ -28,32 +34,94 @@ class ProgressService {
   }
 
   static Future<void> delete(String mangaId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefix + mangaId);
+    final file = await _getProgressFile();
+    if (file == null || !await file.exists()) return;
+
+    final relativeId = await _toRelativeId(mangaId);
+    if (relativeId == null) return;
+
+    final entries = await _readStoredEntries(file);
+    entries.removeWhere((item) => item.mangaId == relativeId);
+    await _writeStoredEntries(file, entries);
   }
 
   static Future<Map<String, ReadingProgress>> getAllAsMap() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().where((k) => k.startsWith(_prefix));
+    final file = await _getProgressFile();
+    if (file == null || !await file.exists()) return {};
+
+    final rootPath = await AppPreferences.getMangaFolderPath();
+    if (rootPath == null || rootPath.isEmpty) return {};
+
+    final entries = await _readStoredEntries(file);
     final result = <String, ReadingProgress>{};
-    for (final key in keys) {
-      final raw = prefs.getString(key);
-      if (raw == null) continue;
-      try {
-        final progress = ReadingProgress.fromJsonString(raw);
-        result[progress.mangaId] = progress;
-      } catch (_) {
-        // skip corrupted entries
-      }
+    for (final progress in entries) {
+      final absoluteId = _toAbsoluteId(progress.mangaId, rootPath);
+      result[absoluteId] = progress.copyWith(mangaId: absoluteId);
     }
     return result;
   }
 
   static Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().where((k) => k.startsWith(_prefix)).toList();
-    for (final key in keys) {
-      await prefs.remove(key);
+    final file = await _getProgressFile();
+    if (file == null || !await file.exists()) return;
+    await file.delete();
+  }
+
+  static Future<File?> _getProgressFile() async {
+    final rootPath = await AppPreferences.getMangaFolderPath();
+    if (rootPath == null || rootPath.isEmpty) return null;
+    return File(p.join(rootPath, _fileName));
+  }
+
+  static Future<List<ReadingProgress>> _readStoredEntries(File file) async {
+    try {
+      if (!await file.exists()) return [];
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return [];
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! List<dynamic>) return [];
+
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(ReadingProgress.fromJson)
+          .toList();
+    } catch (_) {
+      return [];
     }
+  }
+
+  static Future<void> _writeStoredEntries(
+    File file,
+    List<ReadingProgress> entries,
+  ) async {
+    final json = jsonEncode(entries.map((item) => item.toJson()).toList());
+    await file.writeAsString(json);
+  }
+
+  static Future<ReadingProgress?> _toStoredProgress(
+    ReadingProgress progress,
+  ) async {
+    final relativeId = await _toRelativeId(progress.mangaId);
+    if (relativeId == null) return null;
+    return progress.copyWith(mangaId: relativeId);
+  }
+
+  static Future<String?> _toRelativeId(String mangaId) async {
+    final rootPath = await AppPreferences.getMangaFolderPath();
+    if (rootPath == null || rootPath.isEmpty) return null;
+    if (!_isSameOrWithin(rootPath, mangaId)) return null;
+    return p.relative(mangaId, from: rootPath);
+  }
+
+  static String _toAbsoluteId(String storedId, String rootPath) {
+    return p.normalize(p.join(rootPath, storedId));
+  }
+
+  static bool _isSameOrWithin(String rootPath, String targetPath) {
+    final normalizedRoot = p.normalize(rootPath);
+    final normalizedTarget = p.normalize(targetPath);
+    return p.equals(normalizedRoot, normalizedTarget) ||
+        p.isWithin(normalizedRoot, normalizedTarget);
   }
 }
