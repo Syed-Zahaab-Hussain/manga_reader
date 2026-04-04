@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -26,11 +27,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late int _chapterIndex;
   int _initialPage = 0;
 
-  List<String> _pagePaths = [];
+  List<_ReaderPageData> _pages = [];
   bool _loading = true;
   int? _zoomedPageIndex;
 
-  // Scroll & position tracking
   final ItemScrollController _scrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
@@ -38,14 +38,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _currentPage = 0;
   Timer? _saveTimer;
 
-  // Top bar visibility
   bool _topBarVisible = true;
   Timer? _hideTimer;
 
-  // Page label visibility
   bool _pageLabelsVisible = true;
-
-  // Track if we already triggered next-chapter preload
   bool _preloadedNext = false;
 
   @override
@@ -73,10 +69,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------------------------
-  // Chapter loading
-  // ---------------------------------------------------------------------------
-
   Future<void> _loadChapter({int jumpToPage = 0}) async {
     setState(() {
       _loading = true;
@@ -86,13 +78,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final chapter = _manga.chapters[_chapterIndex];
     final paths = await PageLoaderService.instance.loadChapterPages(chapter);
+    final pages = await Future.wait(paths.map(_buildPageData));
 
     if (!mounted) return;
 
-    final safePage = jumpToPage.clamp(0, paths.isEmpty ? 0 : paths.length - 1);
+    final safePage = jumpToPage.clamp(0, pages.isEmpty ? 0 : pages.length - 1);
 
     setState(() {
-      _pagePaths = paths;
+      _pages = pages;
       _currentPage = safePage;
       _loading = false;
       _initialPage = safePage;
@@ -107,9 +100,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Position tracking & progress saving
-  // ---------------------------------------------------------------------------
+  Future<_ReaderPageData> _buildPageData(String filePath) async {
+    final size = await _readImageSize(filePath);
+    final aspectRatio = switch (size) {
+      Size(width: final width, height: final height)
+          when width > 0 && height > 0 =>
+        width / height,
+      _ => 0.7,
+    };
+    return _ReaderPageData(filePath: filePath, aspectRatio: aspectRatio);
+  }
+
+  Future<Size?> _readImageSize(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return null;
+
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        return Size(
+          descriptor.width.toDouble(),
+          descriptor.height.toDouble(),
+        );
+      } finally {
+        descriptor.dispose();
+        buffer.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
 
   void _onPositionsChanged() {
     final positions = _positionsListener.itemPositions.value;
@@ -134,8 +158,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     if (!_preloadedNext &&
-        _pagePaths.isNotEmpty &&
-        page >= _pagePaths.length - 5 &&
+        _pages.isNotEmpty &&
+        page >= _pages.length - 5 &&
         _chapterIndex < _manga.chapters.length - 1) {
       _preloadedNext = true;
       PageLoaderService.instance
@@ -163,10 +187,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     ));
   }
 
-  // ---------------------------------------------------------------------------
-  // Top bar auto-hide
-  // ---------------------------------------------------------------------------
-
   void _scheduleHideTopBar() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 3), () {
@@ -180,10 +200,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _scheduleHideTopBar();
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Chapter navigation
-  // ---------------------------------------------------------------------------
 
   void _goToChapter(int index) {
     if (index < 0 || index >= _manga.chapters.length) return;
@@ -212,10 +228,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Page jump modal
-  // ---------------------------------------------------------------------------
-
   void _showPageJumpDialog() {
     final controller = TextEditingController();
 
@@ -229,7 +241,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           keyboardType: TextInputType.number,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: '1 — ${_pagePaths.length}',
+            hintText: '1 - ${_pages.length}',
           ),
           onSubmitted: (value) {
             _jumpToPage(value);
@@ -255,17 +267,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _jumpToPage(String input) {
     final page = int.tryParse(input.trim());
-    if (page == null || page < 1 || page > _pagePaths.length) return;
+    if (page == null || page < 1 || page > _pages.length) return;
 
     final index = page - 1;
     if (_scrollController.isAttached) {
       _scrollController.jumpTo(index: index);
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +285,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
             top: false,
             child: _buildReaderBody(),
           ),
-
           if (_topBarVisible) _buildTopBar(),
         ],
       ),
@@ -291,7 +298,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
     }
 
-    if (_pagePaths.isEmpty) {
+    if (_pages.isEmpty) {
       return const Center(
         child: Text(
           'No pages found',
@@ -306,17 +313,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
         itemScrollController: _scrollController,
         itemPositionsListener: _positionsListener,
         initialScrollIndex: _initialPage,
-        itemCount: _pagePaths.length,
+        itemCount: _pages.length,
         physics: _zoomedPageIndex == null
             ? const AlwaysScrollableScrollPhysics()
             : const NeverScrollableScrollPhysics(),
         addAutomaticKeepAlives: false,
         itemBuilder: (context, index) {
+          final page = _pages[index];
           return _PageWidget(
             key: ValueKey('${_chapterIndex}_$index'),
-            filePath: _pagePaths[index],
+            filePath: page.filePath,
+            aspectRatio: page.aspectRatio,
             pageIndex: index,
-            totalPages: _pagePaths.length,
+            totalPages: _pages.length,
             showLabel: _pageLabelsVisible,
             zoomTolerance: _zoomTolerance,
             onZoomChanged: (isZoomed) =>
@@ -360,9 +369,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     context.pop();
                   },
                 ),
-
                 const SizedBox(width: 4),
-
                 Expanded(
                   child: Text(
                     chapter.title,
@@ -375,8 +382,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                   ),
                 ),
-
-                // Page indicator (tappable)
                 GestureDetector(
                   onTap: _showPageJumpDialog,
                   child: Container(
@@ -387,7 +392,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
-                      '${_currentPage + 1} / ${_pagePaths.length}',
+                      '${_currentPage + 1} / ${_pages.length}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
@@ -396,8 +401,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                   ),
                 ),
-
-                // Toggle page labels
                 IconButton(
                   icon: Icon(
                     _pageLabelsVisible
@@ -413,20 +416,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     _scheduleHideTopBar();
                   },
                 ),
-
                 const SizedBox(width: 4),
-
                 IconButton(
-                  icon: const Icon(Icons.skip_previous_rounded,
-                      color: Colors.white),
+                  icon: const Icon(
+                    Icons.skip_previous_rounded,
+                    color: Colors.white,
+                  ),
                   onPressed:
                       hasPrev ? () => _goToChapter(_chapterIndex - 1) : null,
                   disabledColor: Colors.white24,
                 ),
-
                 IconButton(
-                  icon:
-                      const Icon(Icons.skip_next_rounded, color: Colors.white),
+                  icon: const Icon(
+                    Icons.skip_next_rounded,
+                    color: Colors.white,
+                  ),
                   onPressed:
                       hasNext ? () => _goToChapter(_chapterIndex + 1) : null,
                   disabledColor: Colors.white24,
@@ -440,12 +444,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Individual page widget — double-tap to zoom in/out
-// ---------------------------------------------------------------------------
+class _ReaderPageData {
+  final String filePath;
+  final double aspectRatio;
+
+  const _ReaderPageData({
+    required this.filePath,
+    required this.aspectRatio,
+  });
+}
 
 class _PageWidget extends StatefulWidget {
   final String filePath;
+  final double aspectRatio;
   final int pageIndex;
   final int totalPages;
   final bool showLabel;
@@ -455,6 +466,7 @@ class _PageWidget extends StatefulWidget {
   const _PageWidget({
     super.key,
     required this.filePath,
+    required this.aspectRatio,
     required this.pageIndex,
     required this.totalPages,
     required this.showLabel,
@@ -477,7 +489,6 @@ class _PageWidgetState extends State<_PageWidget>
   late final AnimationController _animController;
   Animation<Matrix4>? _animation;
 
-  // Captured on double-tap-down so we know where to zoom into
   Offset _doubleTapPosition = Offset.zero;
 
   static const double _zoomedScale = 2.5;
@@ -533,7 +544,6 @@ class _PageWidgetState extends State<_PageWidget>
     if (_isZoomed) {
       target = Matrix4.identity();
     } else {
-      // Translate so the tapped point stays centred after scaling
       final x = -_doubleTapPosition.dx * (_zoomedScale - 1);
       final y = -_doubleTapPosition.dy * (_zoomedScale - 1);
       target = Matrix4.identity()
@@ -577,39 +587,48 @@ class _PageWidgetState extends State<_PageWidget>
   Widget _buildImage() {
     if (!_exists) {
       return Container(
-        height: 400,
         color: Colors.black,
-        child: const Center(
-          child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
-        ),
+        alignment: Alignment.center,
+        child: const Icon(Icons.broken_image, color: Colors.white38, size: 48),
       );
     }
 
-    return Image.file(
-      _file!,
-      fit: BoxFit.fitWidth,
-      width: double.infinity,
-      filterQuality: FilterQuality.medium,
-      errorBuilder: (context, error, stack) {
-        return Container(
-          height: 400,
-          color: Colors.black,
-          child: const Center(
-            child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
+    return AspectRatio(
+      aspectRatio: widget.aspectRatio,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            color: Colors.black,
+            alignment: Alignment.center,
+            child: const CircularProgressIndicator(
+              color: AppTheme.primary,
+              strokeWidth: 2,
+            ),
           ),
-        );
-      },
-      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-        if (wasSynchronouslyLoaded || frame != null) return child;
-        return Container(
-          height: 400,
-          color: Colors.black,
-          child: const Center(
-            child: CircularProgressIndicator(
-                color: AppTheme.primary, strokeWidth: 2),
+          Image.file(
+            _file!,
+            fit: BoxFit.fill,
+            width: double.infinity,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (context, error, stack) {
+              return Container(
+                color: Colors.black,
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.broken_image,
+                  color: Colors.white38,
+                  size: 48,
+                ),
+              );
+            },
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+              if (wasSynchronouslyLoaded || frame != null) return child;
+              return const SizedBox.expand();
+            },
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -629,7 +648,6 @@ class _PageWidgetState extends State<_PageWidget>
                 _resetTransform();
               }
             },
-            // Only pan when zoomed in; vertical drags scroll between pages otherwise
             panEnabled: _isZoomed,
             child: _buildImage(),
           ),
