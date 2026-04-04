@@ -16,10 +16,18 @@ class ProgressService {
     final storedProgress = await _toStoredProgress(progress);
     if (storedProgress == null) return;
 
+    final existing = entries
+        .where((item) =>
+            item.mangaId == storedProgress.mangaId &&
+            item.chapterIndex == storedProgress.chapterIndex)
+        .firstOrNull;
     entries.removeWhere((item) =>
         item.mangaId == storedProgress.mangaId &&
         item.chapterIndex == storedProgress.chapterIndex);
-    entries.add(storedProgress);
+    entries.add(storedProgress.copyWith(
+      isCompleted:
+          storedProgress.isCompleted || (existing?.isCompleted ?? false),
+    ));
     await _writeStoredEntries(file, entries);
   }
 

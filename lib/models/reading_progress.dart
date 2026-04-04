@@ -9,6 +9,7 @@ class ReadingProgress {
   final int chapterIndex;
   final int pageIndex;
   final int totalChapters;
+  final bool isCompleted;
   final DateTime lastRead;
 
   double get overallProgress =>
@@ -23,6 +24,7 @@ class ReadingProgress {
     required this.chapterIndex,
     required this.pageIndex,
     required this.totalChapters,
+    this.isCompleted = false,
     required this.lastRead,
   });
 
@@ -35,6 +37,7 @@ class ReadingProgress {
     int? chapterIndex,
     int? pageIndex,
     int? totalChapters,
+    bool? isCompleted,
     DateTime? lastRead,
   }) =>
       ReadingProgress(
@@ -46,6 +49,7 @@ class ReadingProgress {
         chapterIndex: chapterIndex ?? this.chapterIndex,
         pageIndex: pageIndex ?? this.pageIndex,
         totalChapters: totalChapters ?? this.totalChapters,
+        isCompleted: isCompleted ?? this.isCompleted,
         lastRead: lastRead ?? this.lastRead,
       );
 
@@ -58,6 +62,7 @@ class ReadingProgress {
         'chapterIndex': chapterIndex,
         'pageIndex': pageIndex,
         'totalChapters': totalChapters,
+        'isCompleted': isCompleted,
         'lastRead': lastRead.toIso8601String(),
       };
 
@@ -71,6 +76,7 @@ class ReadingProgress {
         chapterIndex: json['chapterIndex'] as int,
         pageIndex: json['pageIndex'] as int,
         totalChapters: json['totalChapters'] as int,
+        isCompleted: json['isCompleted'] as bool? ?? false,
         lastRead: DateTime.parse(json['lastRead'] as String),
       );
 

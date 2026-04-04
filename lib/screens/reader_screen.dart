@@ -10,6 +10,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../main.dart';
 import '../models/manga_item.dart';
 import '../models/reading_progress.dart';
+import '../services/app_preferences.dart';
 import '../services/page_loader_service.dart';
 import '../services/progress_service.dart';
 
@@ -35,6 +36,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final ItemScrollController _scrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
+  PageController? _pageController;
 
   int _currentPage = 0;
   Timer? _saveTimer;
@@ -45,6 +47,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _pageLabelsVisible = true;
   bool _preloadedNext = false;
   Offset? _tapDownPosition;
+  ReadingDirection _readingDirection = ReadingDirection.vertical;
+  HorizontalPageFit _horizontalPageFit = HorizontalPageFit.width;
+
+  bool get _isHorizontal =>
+      _readingDirection != ReadingDirection.vertical;
+
+  bool get _fitHorizontalWidth =>
+      _horizontalPageFit == HorizontalPageFit.width;
 
   @override
   void initState() {
@@ -58,7 +68,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _positionsListener.itemPositions.addListener(_onPositionsChanged);
 
     _syncSystemUi();
-    _loadChapter(jumpToPage: _initialPage);
+    _loadReader();
     _scheduleHideTopBar();
   }
 
@@ -66,11 +76,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _restoreSystemUi();
     _saveProgressNow();
+    _pageController?.dispose();
     _saveTimer?.cancel();
     _hideTimer?.cancel();
     _positionsListener.itemPositions.removeListener(_onPositionsChanged);
     PageLoaderService.instance.releaseAll();
     super.dispose();
+  }
+
+  Future<void> _loadReader() async {
+    final results = await Future.wait([
+      AppPreferences.getReadingDirection(),
+      AppPreferences.getHorizontalPageFit(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _readingDirection = results[0] as ReadingDirection;
+      _horizontalPageFit = results[1] as HorizontalPageFit;
+    });
+    await _loadChapter(jumpToPage: _initialPage);
   }
 
   Future<void> _loadChapter({int jumpToPage = 0}) async {
@@ -88,11 +112,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final safePage = jumpToPage.clamp(0, pages.isEmpty ? 0 : pages.length - 1);
 
+    final oldPageController = _pageController;
+    final newPageController = PageController(initialPage: safePage);
+
     setState(() {
       _pages = pages;
       _currentPage = safePage;
       _loading = false;
       _initialPage = safePage;
+      _pageController = newPageController;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      oldPageController?.dispose();
     });
 
     if (safePage > 0) {
@@ -140,6 +172,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _onPositionsChanged() {
+    if (_isHorizontal) return;
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return;
 
@@ -187,6 +220,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapterIndex: _chapterIndex,
       pageIndex: _currentPage,
       totalChapters: _manga.chapters.length,
+      isCompleted: _pages.isNotEmpty && _currentPage >= _pages.length - 1,
       lastRead: DateTime.now(),
     ));
   }
@@ -265,6 +299,59 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  Future<void> _toggleReadingDirection() async {
+    final nextDirection = _readingDirection == ReadingDirection.vertical
+        ? ReadingDirection.leftToRight
+        : ReadingDirection.vertical;
+    await AppPreferences.setReadingDirection(nextDirection);
+    if (!mounted) return;
+
+    final oldPageController = _pageController;
+    final newPageController = PageController(initialPage: _currentPage);
+
+    setState(() {
+      _readingDirection = nextDirection;
+      _zoomedPageIndex = null;
+      _initialPage = _currentPage;
+      _pageController = newPageController;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      oldPageController?.dispose();
+    });
+
+    if (nextDirection == ReadingDirection.vertical) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.isAttached) {
+          _scrollController.jumpTo(index: _currentPage);
+        }
+      });
+    }
+    _scheduleHideTopBar();
+  }
+
+  Future<void> _toggleHorizontalPageFit() async {
+    final nextFit = _horizontalPageFit == HorizontalPageFit.width
+        ? HorizontalPageFit.page
+        : HorizontalPageFit.width;
+    await AppPreferences.setHorizontalPageFit(nextFit);
+    if (!mounted) return;
+
+    final oldPageController = _pageController;
+    final newPageController = PageController(initialPage: _currentPage);
+
+    setState(() {
+      _horizontalPageFit = nextFit;
+      _zoomedPageIndex = null;
+      _pageController = newPageController;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      oldPageController?.dispose();
+    });
+    _scheduleHideTopBar();
+  }
+
   void _showPageJumpDialog() {
     final controller = TextEditingController(text: '${_currentPage + 1}');
     controller.selection = TextSelection(
@@ -328,7 +415,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (page == null || page < 1 || page > _pages.length) return;
 
     final index = page - 1;
-    if (_scrollController.isAttached) {
+    if (_isHorizontal) {
+      _pageController?.jumpToPage(index);
+    } else if (_scrollController.isAttached) {
       _scrollController.jumpTo(index: index);
     }
   }
@@ -370,18 +459,53 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onTapDown: (details) => _tapDownPosition = details.localPosition,
       onTapUp: _handleReaderTapUp,
       onTapCancel: () => _tapDownPosition = null,
-      child: ScrollablePositionedList.builder(
-        itemScrollController: _scrollController,
-        itemPositionsListener: _positionsListener,
-        initialScrollIndex: _initialPage,
-        itemCount: _pages.length,
-        physics: _zoomedPageIndex == null
-            ? const AlwaysScrollableScrollPhysics()
-            : const NeverScrollableScrollPhysics(),
-        addAutomaticKeepAlives: false,
-        itemBuilder: (context, index) {
-          final page = _pages[index];
-          return _PageWidget(
+      child: _isHorizontal
+          ? _buildHorizontalPages()
+          : _buildVerticalPages(),
+    );
+  }
+
+  Widget _buildVerticalPages() {
+    return ScrollablePositionedList.builder(
+      itemScrollController: _scrollController,
+      itemPositionsListener: _positionsListener,
+      initialScrollIndex: _initialPage,
+      itemCount: _pages.length,
+      physics: _zoomedPageIndex == null
+          ? const AlwaysScrollableScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      addAutomaticKeepAlives: false,
+      itemBuilder: (context, index) {
+        final page = _pages[index];
+        return _PageWidget(
+          key: ValueKey('${_chapterIndex}_$index'),
+          filePath: page.filePath,
+          aspectRatio: page.aspectRatio,
+          pageIndex: index,
+          totalPages: _pages.length,
+          showLabel: _pageLabelsVisible,
+          zoomTolerance: _zoomTolerance,
+          targetWidth: MediaQuery.sizeOf(context).width,
+          fitToScreen: false,
+          allowPageScroll: false,
+          onZoomChanged: (isZoomed) => _onPageZoomChanged(index, isZoomed),
+        );
+      },
+    );
+  }
+
+  Widget _buildHorizontalPages() {
+    return PageView.builder(
+      controller: _pageController,
+      physics: _zoomedPageIndex == null
+          ? const PageScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      itemCount: _pages.length,
+      onPageChanged: _onHorizontalPageChanged,
+      itemBuilder: (context, index) {
+        final page = _pages[index];
+        return SizedBox.expand(
+          child: _PageWidget(
             key: ValueKey('${_chapterIndex}_$index'),
             filePath: page.filePath,
             aspectRatio: page.aspectRatio,
@@ -390,12 +514,30 @@ class _ReaderScreenState extends State<ReaderScreen> {
             showLabel: _pageLabelsVisible,
             zoomTolerance: _zoomTolerance,
             targetWidth: MediaQuery.sizeOf(context).width,
+            fitToScreen: !_fitHorizontalWidth,
+            allowPageScroll: _fitHorizontalWidth,
             onZoomChanged: (isZoomed) =>
                 _onPageZoomChanged(index, isZoomed),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
+  }
+
+  void _onHorizontalPageChanged(int page) {
+    if (page != _currentPage) {
+      setState(() => _currentPage = page);
+      _debouncedSave();
+    }
+
+    if (!_preloadedNext &&
+        _pages.isNotEmpty &&
+        page >= _pages.length - 2 &&
+        _chapterIndex < _manga.chapters.length - 1) {
+      _preloadedNext = true;
+      PageLoaderService.instance
+          .preloadChapter(_manga.chapters[_chapterIndex + 1]);
+    }
   }
 
   Widget _buildTopBar() {
@@ -469,6 +611,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     _scheduleHideTopBar();
                   },
                 ),
+                IconButton(
+                  icon: Icon(
+                    _isHorizontal
+                        ? Icons.view_agenda_outlined
+                        : Icons.swipe_outlined,
+                    color: Colors.white,
+                  ),
+                  tooltip: _isHorizontal
+                      ? 'Switch to vertical scroll'
+                      : 'Switch to horizontal pages',
+                  onPressed: _toggleReadingDirection,
+                ),
+                if (_isHorizontal)
+                  IconButton(
+                    icon: Icon(
+                      _fitHorizontalWidth
+                          ? Icons.fit_screen
+                          : Icons.fullscreen,
+                      color: Colors.white,
+                    ),
+                    tooltip: _fitHorizontalWidth
+                        ? 'Fit whole page'
+                        : 'Fit page width',
+                    onPressed: _toggleHorizontalPageFit,
+                  ),
                 const SizedBox(width: 4),
                 IconButton(
                   icon: const Icon(
@@ -526,6 +693,8 @@ class _PageWidget extends StatefulWidget {
   final bool showLabel;
   final double zoomTolerance;
   final double targetWidth;
+  final bool fitToScreen;
+  final bool allowPageScroll;
   final ValueChanged<bool> onZoomChanged;
 
   const _PageWidget({
@@ -537,6 +706,8 @@ class _PageWidget extends StatefulWidget {
     required this.showLabel,
     required this.zoomTolerance,
     required this.targetWidth,
+    required this.fitToScreen,
+    required this.allowPageScroll,
     required this.onZoomChanged,
   });
 
@@ -665,34 +836,115 @@ class _PageWidgetState extends State<_PageWidget>
             .clamp(1, 4096)
             .toInt();
 
-    return RepaintBoundary(
-      child: AspectRatio(
-        aspectRatio: widget.aspectRatio,
-        child: Image.file(
-          _file!,
-          fit: BoxFit.fill,
-          width: double.infinity,
-          cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.low,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stack) {
-            return Container(
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.broken_image,
-                color: Colors.white38,
-                size: 48,
-              ),
-            );
-          },
+    final image = Image.file(
+      _file!,
+      fit: BoxFit.fill,
+      width: double.infinity,
+      cacheWidth: cacheWidth,
+      filterQuality: FilterQuality.low,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stack) {
+        return Container(
+          color: Colors.black,
+          alignment: Alignment.center,
+          child: const Icon(
+            Icons.broken_image,
+            color: Colors.white38,
+            size: 48,
+          ),
+        );
+      },
+    );
+
+    if (!widget.fitToScreen) {
+      return RepaintBoundary(
+        child: AspectRatio(
+          aspectRatio: widget.aspectRatio,
+          child: image,
         ),
-      ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final maxHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.sizeOf(context).height;
+        final widthFromHeight = maxHeight * widget.aspectRatio;
+        final width = widthFromHeight < maxWidth ? widthFromHeight : maxWidth;
+        final height = width / widget.aspectRatio;
+
+        return Center(
+          child: RepaintBoundary(
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: image,
+            ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.allowPageScroll) {
+      return GestureDetector(
+        onDoubleTapDown: _onDoubleTapDown,
+        onDoubleTap: _onDoubleTap,
+        child: InteractiveViewer(
+          transformationController: _transformController,
+          minScale: 1.0,
+          maxScale: 4.0,
+          onInteractionEnd: (_) {
+            if (_currentScale <= 1.0 + widget.zoomTolerance) {
+              _resetTransform();
+            }
+          },
+          panEnabled: _isZoomed,
+          child: SingleChildScrollView(
+            physics: _isZoomed
+                ? const NeverScrollableScrollPhysics()
+                : const ClampingScrollPhysics(),
+            child: Column(
+              children: [
+                _buildImage(),
+                _buildPageLabel(),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (widget.fitToScreen) {
+      return Column(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onDoubleTapDown: _onDoubleTapDown,
+              onDoubleTap: _onDoubleTap,
+              child: InteractiveViewer(
+                transformationController: _transformController,
+                minScale: 1.0,
+                maxScale: 4.0,
+                onInteractionEnd: (_) {
+                  if (_currentScale <= 1.0 + widget.zoomTolerance) {
+                    _resetTransform();
+                  }
+                },
+                panEnabled: _isZoomed,
+                child: _buildImage(),
+              ),
+            ),
+          ),
+          _buildPageLabel(),
+        ],
+      );
+    }
+
     return Column(
       children: [
         GestureDetector(

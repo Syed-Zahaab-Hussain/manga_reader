@@ -170,7 +170,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _changeFolder,
             ),
           ]),
-          const SizedBox(height: 20),
           _buildSection('Security', [
             if (_biometricAvailable) ...[
               _buildSwitchTile(

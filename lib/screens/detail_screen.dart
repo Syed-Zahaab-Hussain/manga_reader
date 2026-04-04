@@ -226,6 +226,12 @@ class _DetailScreenState extends State<DetailScreen> {
     final chapter = _manga.chapters[chapterIndex];
     final progress = _chapterProgress[chapterIndex];
     final hasProgress = progress != null;
+    final isCompleted = progress?.isCompleted ?? false;
+    final progressText = progress == null
+        ? ''
+        : isCompleted
+            ? '  -  Completed'
+            : '  -  Left off on page ${progress.pageIndex + 1}';
 
     return InkWell(
       onTap: () => _openReader(
@@ -265,8 +271,8 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${chapter.pageCount} page${chapter.pageCount == 1 ? '' : 's'}'
-                    '${hasProgress ? '  -  Left off on page ${progress.pageIndex + 1}' : ''}',
+                    '${chapter.pageCount} page'
+                    '${chapter.pageCount == 1 ? '' : 's'}$progressText',
                     style: const TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -285,9 +291,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   color: AppTheme.primary,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  'CONTINUE',
-                  style: TextStyle(
+                child: Text(
+                  isCompleted ? 'DONE' : 'CONTINUE',
+                  style: const TextStyle(
                     color: Colors.black,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
