@@ -16,7 +16,9 @@ class ProgressService {
     final storedProgress = await _toStoredProgress(progress);
     if (storedProgress == null) return;
 
-    entries.removeWhere((item) => item.mangaId == storedProgress.mangaId);
+    entries.removeWhere((item) =>
+        item.mangaId == storedProgress.mangaId &&
+        item.chapterIndex == storedProgress.chapterIndex);
     entries.add(storedProgress);
     await _writeStoredEntries(file, entries);
   }
@@ -24,6 +26,33 @@ class ProgressService {
   static Future<ReadingProgress?> get(String mangaId) async {
     final map = await getAllAsMap();
     return map[mangaId];
+  }
+
+  static Future<Map<int, ReadingProgress>> getForManga(String mangaId) async {
+    final file = await _getProgressFile();
+    if (file == null || !await file.exists()) return {};
+
+    final rootPath = await AppPreferences.getMangaFolderPath();
+    if (rootPath == null || rootPath.isEmpty) return {};
+
+    final relativeId = await _toRelativeId(mangaId);
+    if (relativeId == null) return {};
+
+    final entries = await _readStoredEntries(file);
+    final result = <int, ReadingProgress>{};
+    for (final progress in entries) {
+      if (progress.mangaId != relativeId) continue;
+
+      final absoluteProgress = progress.copyWith(
+        mangaId: _toAbsoluteId(progress.mangaId, rootPath),
+      );
+      final existing = result[progress.chapterIndex];
+      if (existing != null && existing.lastRead.isAfter(progress.lastRead)) {
+        continue;
+      }
+      result[progress.chapterIndex] = absoluteProgress;
+    }
+    return result;
   }
 
   static Future<List<ReadingProgress>> getRecentlyRead({int limit = 8}) async {
@@ -56,6 +85,10 @@ class ProgressService {
     final result = <String, ReadingProgress>{};
     for (final progress in entries) {
       final absoluteId = _toAbsoluteId(progress.mangaId, rootPath);
+      final existing = result[absoluteId];
+      if (existing != null && existing.lastRead.isAfter(progress.lastRead)) {
+        continue;
+      }
       result[absoluteId] = progress.copyWith(mangaId: absoluteId);
     }
     return result;

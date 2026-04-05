@@ -17,7 +17,8 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   late final MangaItem _manga;
-  ReadingProgress? _progress;
+  ReadingProgress? _latestProgress;
+  Map<int, ReadingProgress> _chapterProgress = {};
   bool _ascending = true;
 
   @override
@@ -28,8 +29,14 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<void> _loadProgress() async {
-    final p = await ProgressService.get(_manga.id);
-    if (mounted) setState(() => _progress = p);
+    final latest = await ProgressService.get(_manga.id);
+    final chapters = await ProgressService.getForManga(_manga.id);
+    if (mounted) {
+      setState(() {
+        _latestProgress = latest;
+        _chapterProgress = chapters;
+      });
+    }
   }
 
   List<int> get _sortedIndices {
@@ -49,8 +56,13 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _continueReading() {
-    if (_progress == null) return;
-    _openReader(_progress!.chapterIndex, pageIndex: _progress!.pageIndex);
+    final progress = _latestProgress;
+    if (progress == null ||
+        progress.chapterIndex < 0 ||
+        progress.chapterIndex >= _manga.chapters.length) {
+      return;
+    }
+    _openReader(progress.chapterIndex, pageIndex: progress.pageIndex);
   }
 
   @override
@@ -77,7 +89,7 @@ class _DetailScreenState extends State<DetailScreen> {
           SliverToBoxAdapter(child: _buildCoverSection()),
 
           // Continue reading button
-          if (_progress != null)
+          if (_latestProgress != null)
             SliverToBoxAdapter(child: _buildContinueReading()),
 
           // Chapter count + sort toggle
@@ -152,7 +164,10 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildContinueReading() {
-    final p = _progress!;
+    final p = _latestProgress!;
+    if (p.chapterIndex < 0 || p.chapterIndex >= _manga.chapters.length) {
+      return const SizedBox.shrink();
+    }
     final chapter = _manga.chapters[p.chapterIndex];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -209,11 +224,14 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildChapterTile(int chapterIndex) {
     final chapter = _manga.chapters[chapterIndex];
-    final isCurrentChapter =
-        _progress != null && _progress!.chapterIndex == chapterIndex;
+    final progress = _chapterProgress[chapterIndex];
+    final hasProgress = progress != null;
 
     return InkWell(
-      onTap: () => _openReader(chapterIndex),
+      onTap: () => _openReader(
+        chapterIndex,
+        pageIndex: progress?.pageIndex ?? 0,
+      ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
@@ -236,11 +254,11 @@ class _DetailScreenState extends State<DetailScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: isCurrentChapter
+                      color: hasProgress
                           ? AppTheme.primary
                           : AppTheme.onBackground,
                       fontSize: 14,
-                      fontWeight: isCurrentChapter
+                      fontWeight: hasProgress
                           ? FontWeight.bold
                           : FontWeight.normal,
                     ),
@@ -248,7 +266,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   const SizedBox(height: 2),
                   Text(
                     '${chapter.pageCount} page${chapter.pageCount == 1 ? '' : 's'}'
-                    '${isCurrentChapter ? '  •  Left off on page ${_progress!.pageIndex + 1}' : ''}',
+                    '${hasProgress ? '  -  Left off on page ${progress.pageIndex + 1}' : ''}',
                     style: const TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -259,7 +277,7 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
 
             // Reading badge
-            if (isCurrentChapter)
+            if (hasProgress)
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -268,7 +286,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
-                  'READING',
+                  'CONTINUE',
                   style: TextStyle(
                     color: Colors.black,
                     fontSize: 10,
@@ -279,7 +297,7 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
 
             // Arrow
-            if (!isCurrentChapter)
+            if (!hasProgress)
               const Icon(
                 Icons.chevron_right,
                 color: AppTheme.textSecondary,

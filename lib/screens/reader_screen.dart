@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
@@ -43,6 +44,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   bool _pageLabelsVisible = true;
   bool _preloadedNext = false;
+  Offset? _tapDownPosition;
 
   @override
   void initState() {
@@ -55,12 +57,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     _positionsListener.itemPositions.addListener(_onPositionsChanged);
 
+    _syncSystemUi();
     _loadChapter(jumpToPage: _initialPage);
     _scheduleHideTopBar();
   }
 
   @override
   void dispose() {
+    _restoreSystemUi();
     _saveProgressNow();
     _saveTimer?.cancel();
     _hideTimer?.cancel();
@@ -190,15 +194,48 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _scheduleHideTopBar() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _topBarVisible = false);
+      if (!mounted) return;
+      setState(() => _topBarVisible = false);
+      _syncSystemUi();
     });
   }
 
   void _toggleTopBar() {
     setState(() => _topBarVisible = !_topBarVisible);
+    _syncSystemUi();
     if (_topBarVisible) {
       _scheduleHideTopBar();
     }
+  }
+
+  void _syncSystemUi() {
+    if (_topBarVisible) {
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ));
+      return;
+    }
+
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: [SystemUiOverlay.bottom],
+    );
+  }
+
+  void _restoreSystemUi() {
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+    ));
   }
 
   void _goToChapter(int index) {
@@ -229,39 +266,60 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _showPageJumpDialog() {
-    final controller = TextEditingController();
+    final controller = TextEditingController(text: '${_currentPage + 1}');
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
 
-    showDialog(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: const Text('Jump to Page'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: '1 - ${_pages.length}',
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      builder: (ctx) {
+        void submit(String value) {
+          _jumpToPage(value);
+          Navigator.of(ctx).pop();
+        }
+
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(ctx).bottom,
           ),
-          onSubmitted: (value) {
-            _jumpToPage(value);
-            Navigator.of(ctx).pop();
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.go,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      style: const TextStyle(color: AppTheme.onBackground),
+                      decoration: InputDecoration(
+                        labelText: 'Jump to page',
+                        hintText: '1 - ${_pages.length}',
+                      ),
+                      onSubmitted: submit,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: () => submit(controller.text),
+                    child: const Text('Go'),
+                  ),
+                ],
+              ),
+            ),
           ),
-          TextButton(
-            onPressed: () {
-              _jumpToPage(controller.text);
-              Navigator.of(ctx).pop();
-            },
-            child: const Text('Go'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -308,7 +366,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     return GestureDetector(
-      onTap: _toggleTopBar,
+      behavior: HitTestBehavior.translucent,
+      onTapDown: (details) => _tapDownPosition = details.localPosition,
+      onTapUp: _handleReaderTapUp,
+      onTapCancel: () => _tapDownPosition = null,
       child: ScrollablePositionedList.builder(
         itemScrollController: _scrollController,
         itemPositionsListener: _positionsListener,
@@ -328,6 +389,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             totalPages: _pages.length,
             showLabel: _pageLabelsVisible,
             zoomTolerance: _zoomTolerance,
+            targetWidth: MediaQuery.sizeOf(context).width,
             onZoomChanged: (isZoomed) =>
                 _onPageZoomChanged(index, isZoomed),
           );
@@ -346,16 +408,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       left: 0,
       right: 0,
       child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.black.withValues(alpha: 0.85),
-              Colors.transparent,
-            ],
-          ),
-        ),
+        color: Colors.black.withValues(alpha: 0.92),
         child: SafeArea(
           bottom: false,
           child: Padding(
@@ -442,6 +495,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
     );
   }
+
+  void _handleReaderTapUp(TapUpDetails details) {
+    final start = _tapDownPosition;
+    _tapDownPosition = null;
+    if (start == null) return;
+
+    final movement = (details.localPosition - start).distance;
+    if (movement > 8) return;
+
+    _toggleTopBar();
+  }
 }
 
 class _ReaderPageData {
@@ -461,6 +525,7 @@ class _PageWidget extends StatefulWidget {
   final int totalPages;
   final bool showLabel;
   final double zoomTolerance;
+  final double targetWidth;
   final ValueChanged<bool> onZoomChanged;
 
   const _PageWidget({
@@ -471,6 +536,7 @@ class _PageWidget extends StatefulWidget {
     required this.totalPages,
     required this.showLabel,
     required this.zoomTolerance,
+    required this.targetWidth,
     required this.onZoomChanged,
   });
 
@@ -593,41 +659,34 @@ class _PageWidgetState extends State<_PageWidget>
       );
     }
 
-    return AspectRatio(
-      aspectRatio: widget.aspectRatio,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: Colors.black,
-            alignment: Alignment.center,
-            child: const CircularProgressIndicator(
-              color: AppTheme.primary,
-              strokeWidth: 2,
-            ),
-          ),
-          Image.file(
-            _file!,
-            fit: BoxFit.fill,
-            width: double.infinity,
-            filterQuality: FilterQuality.medium,
-            errorBuilder: (context, error, stack) {
-              return Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: const Icon(
-                  Icons.broken_image,
-                  color: Colors.white38,
-                  size: 48,
-                ),
-              );
-            },
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-              if (wasSynchronouslyLoaded || frame != null) return child;
-              return const SizedBox.expand();
-            },
-          ),
-        ],
+    final cacheWidth =
+        (widget.targetWidth * MediaQuery.devicePixelRatioOf(context))
+            .round()
+            .clamp(1, 4096)
+            .toInt();
+
+    return RepaintBoundary(
+      child: AspectRatio(
+        aspectRatio: widget.aspectRatio,
+        child: Image.file(
+          _file!,
+          fit: BoxFit.fill,
+          width: double.infinity,
+          cacheWidth: cacheWidth,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stack) {
+            return Container(
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.broken_image,
+                color: Colors.white38,
+                size: 48,
+              ),
+            );
+          },
+        ),
       ),
     );
   }
