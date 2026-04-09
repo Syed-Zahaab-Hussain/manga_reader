@@ -7,6 +7,23 @@ import 'package:path_provider/path_provider.dart';
 import '../models/chapter_item.dart';
 import '../utils/file_utils.dart';
 
+enum PageLoadErrorType {
+  missingSource,
+  unreadableSource,
+  corruptedArchive,
+  noSupportedImages,
+}
+
+class PageLoadException implements Exception {
+  final PageLoadErrorType type;
+  final String message;
+
+  const PageLoadException(this.type, this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// Provides a list of image file paths for a given chapter.
 ///
 /// - Folder-based chapters: lists and natural-sorts the directory.
@@ -73,15 +90,37 @@ class PageLoaderService {
 
   Future<List<String>> _loadFolderPages(ChapterItem chapter) async {
     final dir = Directory(chapter.path);
-    if (!dir.existsSync()) return [];
+    if (!dir.existsSync()) {
+      throw const PageLoadException(
+        PageLoadErrorType.missingSource,
+        'The chapter folder could not be found. It may have been moved or deleted.',
+      );
+    }
 
-    final files = dir
-        .listSync(followLinks: false)
-        .whereType<File>()
-        .where((f) => isImageFile(f.path))
-        .toList();
+    final List<File> files;
+    try {
+      files = dir
+          .listSync(followLinks: false)
+          .whereType<File>()
+          .where((f) => isImageFile(f.path))
+          .toList();
+    } on FileSystemException {
+      throw const PageLoadException(
+        PageLoadErrorType.unreadableSource,
+        'The chapter folder cannot be read. Check storage permission and try again.',
+      );
+    }
 
-    files.sort((a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
+    if (files.isEmpty) {
+      throw const PageLoadException(
+        PageLoadErrorType.noSupportedImages,
+        'This chapter does not contain any supported images.',
+      );
+    }
+
+    files.sort(
+      (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)),
+    );
 
     return files.map((f) => f.path).toList();
   }
@@ -125,11 +164,12 @@ class PageLoaderService {
   }
 
   Future<_ExtractedChapter> _extractChapter(
-      ChapterItem chapter, String key) async {
+    ChapterItem chapter,
+    String key,
+  ) async {
     final cacheDir = await getTemporaryDirectory();
     final hash = key.hashCode.toRadixString(16);
-    final tempDir =
-        Directory(p.join(cacheDir.path, 'manga_pages', hash));
+    final tempDir = Directory(p.join(cacheDir.path, 'manga_pages', hash));
 
     if (!tempDir.existsSync()) {
       tempDir.createSync(recursive: true);
@@ -140,6 +180,12 @@ class PageLoaderService {
 
     InputFileStream? inputStream;
     try {
+      if (!File(archivePath).existsSync()) {
+        throw const PageLoadException(
+          PageLoadErrorType.missingSource,
+          'The archive could not be found. It may have been moved or deleted.',
+        );
+      }
       inputStream = InputFileStream(archivePath);
       final archive = ZipDecoder().decodeStream(inputStream);
 
@@ -148,26 +194,46 @@ class PageLoaderService {
         if (!isImageFile(e.name)) return false;
         if (prefix.isNotEmpty && !e.name.startsWith(prefix)) return false;
         // Skip entries that are deeper than one level below the prefix
-        final relative =
-            prefix.isNotEmpty ? e.name.substring(prefix.length) : e.name;
+        final relative = prefix.isNotEmpty
+            ? e.name.substring(prefix.length)
+            : e.name;
         if (relative.contains('/')) return false;
         return true;
       }).toList();
 
       imageEntries.sort((a, b) => naturalCompare(a.name, b.name));
 
+      if (imageEntries.isEmpty) {
+        throw const PageLoadException(
+          PageLoadErrorType.noSupportedImages,
+          'This chapter does not contain any supported images.',
+        );
+      }
+
       final pagePaths = <String>[];
       for (var i = 0; i < imageEntries.length; i++) {
         final entry = imageEntries[i];
         final ext = p.extension(entry.name);
-        final outFile = File(p.join(tempDir.path, '${i.toString().padLeft(5, '0')}$ext'));
+        final outFile = File(
+          p.join(tempDir.path, '${i.toString().padLeft(5, '0')}$ext'),
+        );
         await outFile.writeAsBytes(entry.content);
         pagePaths.add(outFile.path);
       }
 
       return _ExtractedChapter(tempDir: tempDir, pagePaths: pagePaths);
-    } catch (e) {
-      return _ExtractedChapter(tempDir: tempDir, pagePaths: []);
+    } on PageLoadException {
+      rethrow;
+    } on FileSystemException {
+      throw const PageLoadException(
+        PageLoadErrorType.unreadableSource,
+        'The archive cannot be read. Check storage permission and free space.',
+      );
+    } catch (_) {
+      throw const PageLoadException(
+        PageLoadErrorType.corruptedArchive,
+        'The archive is corrupted, password-protected, or unsupported.',
+      );
     } finally {
       inputStream?.closeSync();
     }
@@ -181,9 +247,5 @@ class _ExtractedChapter {
   final Directory tempDir;
   final List<String> pagePaths;
 
-  const _ExtractedChapter({
-    required this.tempDir,
-    required this.pagePaths,
-  });
+  const _ExtractedChapter({required this.tempDir, required this.pagePaths});
 }
-

@@ -31,6 +31,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   List<_ReaderPageData> _pages = [];
   bool _loading = true;
+  PageLoadException? _loadError;
   int? _zoomedPageIndex;
   bool _zoomEnabled = false;
 
@@ -52,11 +53,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   HorizontalPageFit _horizontalPageFit = HorizontalPageFit.width;
   double _imageWidth = 1.0;
 
-  bool get _isHorizontal =>
-      _readingDirection != ReadingDirection.vertical;
+  bool get _isHorizontal => _readingDirection != ReadingDirection.vertical;
 
-  bool get _fitHorizontalWidth =>
-      _horizontalPageFit == HorizontalPageFit.width;
+  bool get _fitHorizontalWidth => _horizontalPageFit == HorizontalPageFit.width;
 
   @override
   void initState() {
@@ -104,13 +103,36 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _loadChapter({int jumpToPage = 0}) async {
     setState(() {
       _loading = true;
+      _loadError = null;
       _preloadedNext = false;
       _zoomedPageIndex = null;
     });
 
     final chapter = _manga.chapters[_chapterIndex];
-    final paths = await PageLoaderService.instance.loadChapterPages(chapter);
-    final pages = await Future.wait(paths.map(_buildPageData));
+    late final List<_ReaderPageData> pages;
+    try {
+      final paths = await PageLoaderService.instance.loadChapterPages(chapter);
+      pages = await Future.wait(paths.map(_buildPageData));
+    } on PageLoadException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _pages = [];
+        _loading = false;
+        _loadError = error;
+      });
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _pages = [];
+        _loading = false;
+        _loadError = const PageLoadException(
+          PageLoadErrorType.unreadableSource,
+          'This chapter could not be opened. Check the source files and try again.',
+        );
+      });
+      return;
+    }
 
     if (!mounted) return;
 
@@ -162,10 +184,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
       final descriptor = await ui.ImageDescriptor.encoded(buffer);
       try {
-        return Size(
-          descriptor.width.toDouble(),
-          descriptor.height.toDouble(),
-        );
+        return Size(descriptor.width.toDouble(), descriptor.height.toDouble());
       } finally {
         descriptor.dispose();
         buffer.dispose();
@@ -203,8 +222,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         page >= _pages.length - 5 &&
         _chapterIndex < _manga.chapters.length - 1) {
       _preloadedNext = true;
-      PageLoaderService.instance
-          .preloadChapter(_manga.chapters[_chapterIndex + 1]);
+      PageLoaderService.instance.preloadChapter(
+        _manga.chapters[_chapterIndex + 1],
+      );
     }
   }
 
@@ -215,18 +235,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _saveProgressNow() {
     _saveTimer?.cancel();
-    ProgressService.save(ReadingProgress(
-      mangaId: _manga.id,
-      mangaTitle: _manga.title,
-      coverImagePath: _manga.coverImagePath,
-      coverIsInArchive: _manga.coverIsInArchive,
-      coverArchiveEntry: _manga.coverArchiveEntry,
-      chapterIndex: _chapterIndex,
-      pageIndex: _currentPage,
-      totalChapters: _manga.chapters.length,
-      isCompleted: _pages.isNotEmpty && _currentPage >= _pages.length - 1,
-      lastRead: DateTime.now(),
-    ));
+    ProgressService.save(
+      ReadingProgress(
+        mangaId: _manga.id,
+        mangaTitle: _manga.title,
+        coverImagePath: _manga.coverImagePath,
+        coverIsInArchive: _manga.coverIsInArchive,
+        coverArchiveEntry: _manga.coverArchiveEntry,
+        chapterIndex: _chapterIndex,
+        pageIndex: _currentPage,
+        totalChapters: _manga.chapters.length,
+        isCompleted: _pages.isNotEmpty && _currentPage >= _pages.length - 1,
+        lastRead: DateTime.now(),
+      ),
+    );
   }
 
   void _scheduleHideTopBar() {
@@ -252,11 +274,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
         SystemUiMode.manual,
         overlays: SystemUiOverlay.values,
       );
-      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-        statusBarColor: Colors.black,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-      ));
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.black,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
+      );
       return;
     }
 
@@ -271,9 +295,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
+    );
   }
 
   void _goToChapter(int index) {
@@ -520,8 +544,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ListTile(
                       leading: const Icon(Icons.width_normal),
                       title: const Text('Image width'),
-                      subtitle:
-                          Text('${(_imageWidth * 100).round()}% of screen'),
+                      subtitle: Text(
+                        '${(_imageWidth * 100).round()}% of screen',
+                      ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
                         Navigator.of(sheetContext).pop();
@@ -619,9 +644,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         return AnimatedPadding(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(ctx).bottom,
-          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
           child: SafeArea(
             top: false,
             child: Padding(
@@ -675,10 +698,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          SafeArea(
-            top: false,
-            child: _buildReaderBody(),
-          ),
+          SafeArea(top: false, child: _buildReaderBody()),
           if (_topBarVisible) _buildTopBar(),
         ],
       ),
@@ -690,6 +710,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return const Center(
         child: CircularProgressIndicator(color: AppTheme.primary),
       );
+    }
+
+    if (_loadError != null) {
+      return _buildLoadError(_loadError!);
     }
 
     if (_pages.isEmpty) {
@@ -706,9 +730,70 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onTapDown: (details) => _tapDownPosition = details.localPosition,
       onTapUp: _handleReaderTapUp,
       onTapCancel: () => _tapDownPosition = null,
-      child: _isHorizontal
-          ? _buildHorizontalPages()
-          : _buildVerticalPages(),
+      child: _isHorizontal ? _buildHorizontalPages() : _buildVerticalPages(),
+    );
+  }
+
+  Widget _buildLoadError(PageLoadException error) {
+    final icon = switch (error.type) {
+      PageLoadErrorType.missingSource => Icons.folder_off_outlined,
+      PageLoadErrorType.unreadableSource => Icons.lock_outline,
+      PageLoadErrorType.corruptedArchive => Icons.archive_outlined,
+      PageLoadErrorType.noSupportedImages => Icons.image_not_supported_outlined,
+    };
+    final title = switch (error.type) {
+      PageLoadErrorType.missingSource => 'Source not found',
+      PageLoadErrorType.unreadableSource => 'Cannot read chapter',
+      PageLoadErrorType.corruptedArchive => 'Archive cannot be opened',
+      PageLoadErrorType.noSupportedImages => 'No supported pages',
+    };
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white38, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error.message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () => context.pop(),
+                  child: const Text('Go back'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _loadChapter(jumpToPage: _currentPage),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Try again'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -765,8 +850,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             targetWidth: MediaQuery.sizeOf(context).width * _imageWidth,
             fitToScreen: !_fitHorizontalWidth,
             allowPageScroll: _fitHorizontalWidth,
-            onZoomChanged: (isZoomed) =>
-                _onPageZoomChanged(index, isZoomed),
+            onZoomChanged: (isZoomed) => _onPageZoomChanged(index, isZoomed),
           ),
         );
       },
@@ -784,8 +868,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         page >= _pages.length - 2 &&
         _chapterIndex < _manga.chapters.length - 1) {
       _preloadedNext = true;
-      PageLoaderService.instance
-          .preloadChapter(_manga.chapters[_chapterIndex + 1]);
+      PageLoaderService.instance.preloadChapter(
+        _manga.chapters[_chapterIndex + 1],
+      );
     }
   }
 
@@ -829,8 +914,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 GestureDetector(
                   onTap: _showPageJumpDialog,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(16),
@@ -846,10 +933,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(
-                    Icons.tune_rounded,
-                    color: Colors.white,
-                  ),
+                  icon: const Icon(Icons.tune_rounded, color: Colors.white),
                   tooltip: 'Reader settings',
                   onPressed: _showReaderSettings,
                 ),
@@ -859,8 +943,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     Icons.skip_previous_rounded,
                     color: Colors.white,
                   ),
-                  onPressed:
-                      hasPrev ? () => _goToChapter(_chapterIndex - 1) : null,
+                  onPressed: hasPrev
+                      ? () => _goToChapter(_chapterIndex - 1)
+                      : null,
                   disabledColor: Colors.white24,
                 ),
                 IconButton(
@@ -868,8 +953,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     Icons.skip_next_rounded,
                     color: Colors.white,
                   ),
-                  onPressed:
-                      hasNext ? () => _goToChapter(_chapterIndex + 1) : null,
+                  onPressed: hasNext
+                      ? () => _goToChapter(_chapterIndex + 1)
+                      : null,
                   disabledColor: Colors.white24,
                 ),
               ],
@@ -896,10 +982,7 @@ class _ReaderPageData {
   final String filePath;
   final double aspectRatio;
 
-  const _ReaderPageData({
-    required this.filePath,
-    required this.aspectRatio,
-  });
+  const _ReaderPageData({required this.filePath, required this.aspectRatio});
 }
 
 class _PageWidget extends StatefulWidget {
@@ -989,10 +1072,7 @@ class _PageWidgetState extends State<_PageWidget> {
       child: Text(
         '${widget.pageIndex + 1} / ${widget.totalPages}',
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white38,
-          fontSize: 11,
-        ),
+        style: const TextStyle(color: Colors.white38, fontSize: 11),
       ),
     );
   }
@@ -1037,10 +1117,7 @@ class _PageWidgetState extends State<_PageWidget> {
         child: RepaintBoundary(
           child: SizedBox(
             width: widget.targetWidth,
-            child: AspectRatio(
-              aspectRatio: widget.aspectRatio,
-              child: image,
-            ),
+            child: AspectRatio(aspectRatio: widget.aspectRatio, child: image),
           ),
         ),
       );
@@ -1060,11 +1137,7 @@ class _PageWidgetState extends State<_PageWidget> {
 
         return Center(
           child: RepaintBoundary(
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: image,
-            ),
+            child: SizedBox(width: width, height: height, child: image),
           ),
         );
       },
@@ -1077,12 +1150,7 @@ class _PageWidgetState extends State<_PageWidget> {
       if (widget.allowPageScroll) {
         return SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
-          child: Column(
-            children: [
-              _buildImage(),
-              _buildPageLabel(),
-            ],
-          ),
+          child: Column(children: [_buildImage(), _buildPageLabel()]),
         );
       }
 
@@ -1095,12 +1163,7 @@ class _PageWidgetState extends State<_PageWidget> {
         );
       }
 
-      return Column(
-        children: [
-          _buildImage(),
-          _buildPageLabel(),
-        ],
-      );
+      return Column(children: [_buildImage(), _buildPageLabel()]);
     }
 
     if (widget.allowPageScroll) {
@@ -1118,12 +1181,7 @@ class _PageWidgetState extends State<_PageWidget> {
           physics: _isZoomed
               ? const NeverScrollableScrollPhysics()
               : const ClampingScrollPhysics(),
-          child: Column(
-            children: [
-              _buildImage(),
-              _buildPageLabel(),
-            ],
-          ),
+          child: Column(children: [_buildImage(), _buildPageLabel()]),
         ),
       );
     }

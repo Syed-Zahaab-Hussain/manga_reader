@@ -33,6 +33,12 @@ class ScanErrorEvent extends ScannerEvent {
   ScanErrorEvent(this.message);
 }
 
+class ScanWarningEvent extends ScannerEvent {
+  final String itemName;
+  final String message;
+  ScanWarningEvent(this.itemName, this.message);
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -91,10 +97,12 @@ class ScannerService {
         final type = message['type'] as String?;
         switch (type) {
           case 'progress':
-            controller.add(ScanProgressEvent(
-              message['scanned'] as int,
-              message['total'] as int,
-            ));
+            controller.add(
+              ScanProgressEvent(
+                message['scanned'] as int,
+                message['total'] as int,
+              ),
+            );
           case 'manga':
             final mangaMap = message['manga'] as Map<String, dynamic>;
             controller.add(ScanMangaEvent(MangaItem.fromMap(mangaMap)));
@@ -106,6 +114,13 @@ class ScannerService {
             controller.add(ScanErrorEvent(message['message'] as String));
             controller.close();
             receivePort.close();
+          case 'warning':
+            controller.add(
+              ScanWarningEvent(
+                message['itemName'] as String,
+                message['message'] as String,
+              ),
+            );
         }
       },
       onDone: () {
@@ -119,7 +134,6 @@ class ScannerService {
     _isolate = null;
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Isolate entry (top-level — required for Isolate.spawn)
@@ -161,8 +175,9 @@ void _isolateEntry(List<dynamic> args) {
     }
 
     // Natural sort candidates by basename
-    candidates.sort((a, b) =>
-        naturalCompare(p.basename(a.path), p.basename(b.path)));
+    candidates.sort(
+      (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)),
+    );
 
     final total = candidates.length;
     sendPort.send({'type': 'progress', 'scanned': 0, 'total': total});
@@ -173,7 +188,15 @@ void _isolateEntry(List<dynamic> args) {
       if (candidate is Directory) {
         manga = _scanFolderManga(candidate);
       } else if (candidate is File) {
-        manga = _scanArchiveManga(candidate);
+        final result = _scanArchiveManga(candidate);
+        manga = result.manga;
+        if (result.warning != null) {
+          sendPort.send({
+            'type': 'warning',
+            'itemName': p.basename(candidate.path),
+            'message': result.warning,
+          });
+        }
       }
 
       scanned++;
@@ -205,17 +228,23 @@ MangaItem? _scanFolderManga(Directory dir) {
   }
 
   // Natural-sort contents by basename
-  contents.sort((a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
+  contents.sort(
+    (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)),
+  );
 
   final subDirs = contents.whereType<Directory>().toList();
-  final rootImages =
-      contents.whereType<File>().where((f) => isImageFile(f.path)).toList();
+  final rootImages = contents
+      .whereType<File>()
+      .where((f) => isImageFile(f.path))
+      .toList();
 
   final chapters = <ChapterItem>[];
   String? coverImagePath;
 
   // Check for cover.{ext} in manga root
-  final coverFile = rootImages.where((f) => isCoverFile(p.basename(f.path))).firstOrNull;
+  final coverFile = rootImages
+      .where((f) => isCoverFile(p.basename(f.path)))
+      .firstOrNull;
   if (coverFile != null) {
     coverImagePath = coverFile.path;
   }
@@ -230,7 +259,8 @@ MangaItem? _scanFolderManga(Directory dir) {
         continue;
       }
       subContents.sort(
-          (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)));
+        (a, b) => naturalCompare(p.basename(a.path), p.basename(b.path)),
+      );
 
       final subImages = subContents
           .whereType<File>()
@@ -238,12 +268,14 @@ MangaItem? _scanFolderManga(Directory dir) {
           .toList();
       if (subImages.isEmpty) continue;
 
-      chapters.add(ChapterItem(
-        title: p.basename(subDir.path),
-        path: subDir.path,
-        isArchive: false,
-        pageCount: subImages.length,
-      ));
+      chapters.add(
+        ChapterItem(
+          title: p.basename(subDir.path),
+          path: subDir.path,
+          isArchive: false,
+          pageCount: subImages.length,
+        ),
+      );
 
       // Use first image of first chapter as cover if no explicit cover found
       if (coverImagePath == null && chapters.length == 1) {
@@ -254,16 +286,21 @@ MangaItem? _scanFolderManga(Directory dir) {
     // No subfolders — images directly in folder = single chapter
     if (rootImages.isEmpty) return null;
 
-    final nonCoverImages =
-        rootImages.where((f) => !isCoverFile(p.basename(f.path))).toList();
-    final chapterImages = nonCoverImages.isNotEmpty ? nonCoverImages : rootImages;
+    final nonCoverImages = rootImages
+        .where((f) => !isCoverFile(p.basename(f.path)))
+        .toList();
+    final chapterImages = nonCoverImages.isNotEmpty
+        ? nonCoverImages
+        : rootImages;
 
-    chapters.add(ChapterItem(
-      title: title,
-      path: mangaPath,
-      isArchive: false,
-      pageCount: chapterImages.length,
-    ));
+    chapters.add(
+      ChapterItem(
+        title: title,
+        path: mangaPath,
+        isArchive: false,
+        pageCount: chapterImages.length,
+      ),
+    );
 
     coverImagePath ??= chapterImages.first.path;
   }
@@ -285,7 +322,7 @@ MangaItem? _scanFolderManga(Directory dir) {
 // Archive manga scanner
 // ---------------------------------------------------------------------------
 
-MangaItem? _scanArchiveManga(File file) {
+_ArchiveScanResult _scanArchiveManga(File file) {
   final archivePath = file.path;
   final title = p.basenameWithoutExtension(archivePath);
 
@@ -296,7 +333,9 @@ MangaItem? _scanArchiveManga(File file) {
     archive = ZipDecoder().decodeStream(inputStream);
   } catch (_) {
     inputStream?.closeSync();
-    return null; // corrupted — skip
+    return const _ArchiveScanResult(
+      warning: 'Archive is corrupted, password-protected, or unsupported.',
+    );
   } finally {
     inputStream?.closeSync();
   }
@@ -306,11 +345,14 @@ MangaItem? _scanArchiveManga(File file) {
       .where((e) => e.isFile && isImageFile(e.name))
       .toList();
 
-  if (imageEntries.isEmpty) return null;
+  if (imageEntries.isEmpty) {
+    return const _ArchiveScanResult(
+      warning: 'Archive contains no supported images.',
+    );
+  }
 
   // Natural sort by entry name
-  imageEntries
-      .sort((a, b) => naturalCompare(a.name, b.name));
+  imageEntries.sort((a, b) => naturalCompare(a.name, b.name));
 
   // Detect top-level subdirectories
   final subDirNames = <String>{};
@@ -338,22 +380,24 @@ MangaItem? _scanArchiveManga(File file) {
 
   if (subDirNames.isNotEmpty) {
     // Sort subdirectory names naturally
-    final sortedDirNames = subDirNames.toList()
-      ..sort(naturalCompare);
+    final sortedDirNames = subDirNames.toList()..sort(naturalCompare);
 
     for (final dirName in sortedDirNames) {
       final prefix = '$dirName/';
-      final dirImages =
-          imageEntries.where((e) => e.name.startsWith(prefix)).toList();
+      final dirImages = imageEntries
+          .where((e) => e.name.startsWith(prefix))
+          .toList();
       if (dirImages.isEmpty) continue;
 
-      chapters.add(ChapterItem(
-        title: dirName,
-        path: archivePath,
-        isArchive: true,
-        archiveEntryPrefix: prefix,
-        pageCount: dirImages.length,
-      ));
+      chapters.add(
+        ChapterItem(
+          title: dirName,
+          path: archivePath,
+          isArchive: true,
+          archiveEntryPrefix: prefix,
+          pageCount: dirImages.length,
+        ),
+      );
 
       // First image of first chapter as cover fallback
       if (coverArchiveEntry == null && chapters.length == 1) {
@@ -364,13 +408,15 @@ MangaItem? _scanArchiveManga(File file) {
     }
   } else {
     // Flat archive — single chapter, all images
-    chapters.add(ChapterItem(
-      title: title,
-      path: archivePath,
-      isArchive: true,
-      archiveEntryPrefix: '',
-      pageCount: imageEntries.length,
-    ));
+    chapters.add(
+      ChapterItem(
+        title: title,
+        path: archivePath,
+        isArchive: true,
+        archiveEntryPrefix: '',
+        pageCount: imageEntries.length,
+      ),
+    );
 
     if (coverArchiveEntry == null) {
       coverImagePath = archivePath;
@@ -379,16 +425,29 @@ MangaItem? _scanArchiveManga(File file) {
     }
   }
 
-  if (chapters.isEmpty) return null;
+  if (chapters.isEmpty) {
+    return const _ArchiveScanResult(
+      warning: 'Archive contains no readable chapters.',
+    );
+  }
 
-  return MangaItem(
-    id: archivePath,
-    title: title,
-    path: archivePath,
-    isArchive: true,
-    chapters: chapters,
-    coverImagePath: coverImagePath,
-    coverIsInArchive: coverIsInArchive,
-    coverArchiveEntry: coverArchiveEntry,
+  return _ArchiveScanResult(
+    manga: MangaItem(
+      id: archivePath,
+      title: title,
+      path: archivePath,
+      isArchive: true,
+      chapters: chapters,
+      coverImagePath: coverImagePath,
+      coverIsInArchive: coverIsInArchive,
+      coverArchiveEntry: coverArchiveEntry,
+    ),
   );
+}
+
+class _ArchiveScanResult {
+  final MangaItem? manga;
+  final String? warning;
+
+  const _ArchiveScanResult({this.manga, this.warning});
 }
