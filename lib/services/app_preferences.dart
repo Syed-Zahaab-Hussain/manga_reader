@@ -15,6 +15,7 @@ class AppPreferences {
   static const readingDirectionKey = 'reading_direction';
   static const horizontalPageFitKey = 'horizontal_page_fit';
   static const horizontalImageWidthKey = 'horizontal_image_width';
+  static const readerControlsLockedKey = 'reader_controls_locked';
 
   static Future<String?> getMangaFolderPath() async {
     final prefs = await SharedPreferences.getInstance();
@@ -69,6 +70,16 @@ class AppPreferences {
     );
   }
 
+  static Future<bool> getReaderControlsLocked() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(readerControlsLockedKey) ?? false;
+  }
+
+  static Future<void> setReaderControlsLocked(bool locked) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(readerControlsLockedKey, locked);
+  }
+
   static Future<Map<String, dynamic>> exportSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return {
@@ -76,6 +87,7 @@ class AppPreferences {
       readingDirectionKey: prefs.getString(readingDirectionKey),
       horizontalPageFitKey: prefs.getString(horizontalPageFitKey),
       horizontalImageWidthKey: prefs.getDouble(horizontalImageWidthKey),
+      readerControlsLockedKey: prefs.getBool(readerControlsLockedKey),
     };
   }
 
@@ -100,6 +112,11 @@ class AppPreferences {
         horizontalImageWidthKey,
         imageWidth.toDouble().clamp(0.4, 1.0).toDouble(),
       );
+    }
+
+    final controlsLocked = settings[readerControlsLockedKey];
+    if (controlsLocked is bool) {
+      await prefs.setBool(readerControlsLockedKey, controlsLocked);
     }
   }
 }

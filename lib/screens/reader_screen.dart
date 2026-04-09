@@ -45,8 +45,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   bool _topBarVisible = true;
   Timer? _hideTimer;
+  Timer? _unlockButtonTimer;
 
   bool _pageLabelsVisible = true;
+  bool _readerControlsLocked = false;
+  bool _unlockButtonVisible = false;
   bool _preloadedNext = false;
   Offset? _tapDownPosition;
   ReadingDirection _readingDirection = ReadingDirection.vertical;
@@ -80,6 +83,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _pageController?.dispose();
     _saveTimer?.cancel();
     _hideTimer?.cancel();
+    _unlockButtonTimer?.cancel();
     _positionsListener.itemPositions.removeListener(_onPositionsChanged);
     PageLoaderService.instance.releaseAll();
     super.dispose();
@@ -90,13 +94,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
       AppPreferences.getReadingDirection(),
       AppPreferences.getHorizontalPageFit(),
       AppPreferences.getReaderImageWidth(),
+      AppPreferences.getReaderControlsLocked(),
     ]);
     if (!mounted) return;
     setState(() {
       _readingDirection = results[0] as ReadingDirection;
       _horizontalPageFit = results[1] as HorizontalPageFit;
       _imageWidth = results[2] as double;
+      _readerControlsLocked = results[3] as bool;
+      if (_readerControlsLocked) {
+        _topBarVisible = false;
+      }
     });
+    _syncSystemUi();
     await _loadChapter(jumpToPage: _initialPage);
   }
 
@@ -253,6 +263,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _scheduleHideTopBar() {
     _hideTimer?.cancel();
+    if (_readerControlsLocked) {
+      if (_topBarVisible) {
+        setState(() => _topBarVisible = false);
+        _syncSystemUi();
+      }
+      return;
+    }
+
     _hideTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       setState(() => _topBarVisible = false);
@@ -261,9 +279,41 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _toggleTopBar() {
+    if (_readerControlsLocked) {
+      _showTemporaryUnlockButton();
+      return;
+    }
+
     setState(() => _topBarVisible = !_topBarVisible);
     _syncSystemUi();
     if (_topBarVisible) {
+      _scheduleHideTopBar();
+    }
+  }
+
+  void _showTemporaryUnlockButton() {
+    _unlockButtonTimer?.cancel();
+    setState(() => _unlockButtonVisible = true);
+    _unlockButtonTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _unlockButtonVisible = false);
+    });
+  }
+
+  Future<void> _setReaderControlsLocked(bool locked) async {
+    await AppPreferences.setReaderControlsLocked(locked);
+    if (!mounted) return;
+
+    _hideTimer?.cancel();
+    _unlockButtonTimer?.cancel();
+    setState(() {
+      _readerControlsLocked = locked;
+      _unlockButtonVisible = false;
+      _topBarVisible = !locked;
+    });
+    _syncSystemUi();
+
+    if (!locked) {
       _scheduleHideTopBar();
     }
   }
@@ -468,6 +518,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
               setSheetState(() {});
             }
 
+            void toggleControlsLock(bool value) {
+              unawaited(
+                _setReaderControlsLocked(value).then((_) {
+                  if (mounted) {
+                    setSheetState(() {});
+                  }
+                }),
+              );
+            }
+
             return SafeArea(
               top: false,
               child: SingleChildScrollView(
@@ -503,6 +563,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       title: const Text('Page numbers'),
                       value: _pageLabelsVisible,
                       onChanged: togglePageLabels,
+                    ),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.lock_outline),
+                      title: const Text('Lock reader controls'),
+                      subtitle: const Text(
+                        'Keep the app bar hidden while reading',
+                      ),
+                      value: _readerControlsLocked,
+                      onChanged: toggleControlsLock,
                     ),
                     ListTile(
                       leading: Icon(
@@ -700,7 +769,50 @@ class _ReaderScreenState extends State<ReaderScreen> {
         children: [
           SafeArea(top: false, child: _buildReaderBody()),
           if (_topBarVisible) _buildTopBar(),
+          if (_readerControlsLocked && _unlockButtonVisible)
+            _buildFloatingUnlockButton(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingUnlockButton() {
+    return Positioned(
+      top: 0,
+      right: 12,
+      child: SafeArea(
+        bottom: false,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: () => unawaited(_setReaderControlsLocked(false)),
+            child: Container(
+              margin: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_open_rounded, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Unlock',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
