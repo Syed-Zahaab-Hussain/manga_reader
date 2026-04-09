@@ -108,6 +108,67 @@ class ProgressService {
     await file.delete();
   }
 
+  static Future<List<Map<String, dynamic>>> exportStoredProgress() async {
+    final file = await _getProgressFile();
+    if (file == null || !await file.exists()) return [];
+
+    final entries = await _readStoredEntries(file);
+    return entries.map((item) => item.toJson()).toList();
+  }
+
+  static Future<int> importStoredProgress(
+    List<dynamic> rawEntries, {
+    bool merge = true,
+  }) async {
+    final file = await _getProgressFile();
+    if (file == null) return 0;
+
+    final incoming = <ReadingProgress>[];
+    for (final entry in rawEntries) {
+      if (entry is! Map<String, dynamic>) continue;
+      try {
+        final progress = ReadingProgress.fromJson(entry);
+        if (progress.mangaId.trim().isEmpty) continue;
+        incoming.add(progress);
+      } catch (_) {
+        continue;
+      }
+    }
+
+    if (incoming.isEmpty) return 0;
+
+    final merged = merge ? await _readStoredEntries(file) : <ReadingProgress>[];
+    var importedCount = 0;
+
+    for (final progress in incoming) {
+      final existingIndex = merged.indexWhere(
+        (item) =>
+            item.mangaId == progress.mangaId &&
+            item.chapterIndex == progress.chapterIndex,
+      );
+
+      if (existingIndex == -1) {
+        merged.add(progress);
+        importedCount++;
+        continue;
+      }
+
+      final existing = merged[existingIndex];
+      if (progress.lastRead.isAfter(existing.lastRead)) {
+        merged[existingIndex] = progress.copyWith(
+          isCompleted: progress.isCompleted || existing.isCompleted,
+        );
+        importedCount++;
+      } else if (progress.isCompleted && !existing.isCompleted) {
+        merged[existingIndex] = existing.copyWith(isCompleted: true);
+        importedCount++;
+      }
+    }
+
+    await _writeStoredEntries(file, merged);
+    return importedCount;
+  }
+
   static Future<File?> _getProgressFile() async {
     final rootPath = await AppPreferences.getMangaFolderPath();
     if (rootPath == null || rootPath.isEmpty) return null;

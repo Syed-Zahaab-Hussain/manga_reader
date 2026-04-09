@@ -68,4 +68,38 @@ class AppPreferences {
       width.clamp(0.4, 1.0).toDouble(),
     );
   }
+
+  static Future<Map<String, dynamic>> exportSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {
+      mangaFolderPathKey: prefs.getString(mangaFolderPathKey),
+      readingDirectionKey: prefs.getString(readingDirectionKey),
+      horizontalPageFitKey: prefs.getString(horizontalPageFitKey),
+      horizontalImageWidthKey: prefs.getDouble(horizontalImageWidthKey),
+    };
+  }
+
+  static Future<void> importSettings(Map<String, dynamic> settings) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final readingDirection = settings[readingDirectionKey];
+    if (readingDirection is String &&
+        ReadingDirection.values.any((item) => item.name == readingDirection)) {
+      await prefs.setString(readingDirectionKey, readingDirection);
+    }
+
+    final pageFit = settings[horizontalPageFitKey];
+    if (pageFit is String &&
+        HorizontalPageFit.values.any((item) => item.name == pageFit)) {
+      await prefs.setString(horizontalPageFitKey, pageFit);
+    }
+
+    final imageWidth = settings[horizontalImageWidthKey];
+    if (imageWidth is num) {
+      await prefs.setDouble(
+        horizontalImageWidthKey,
+        imageWidth.toDouble().clamp(0.4, 1.0).toDouble(),
+      );
+    }
+  }
 }

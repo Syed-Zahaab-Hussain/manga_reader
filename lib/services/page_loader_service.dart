@@ -84,6 +84,20 @@ class PageLoaderService {
     _pending.clear();
   }
 
+  Future<int> getExtractedPagesSizeBytes() async {
+    final dir = await _getExtractedPagesRoot();
+    if (!dir.existsSync()) return 0;
+    return _directorySize(dir);
+  }
+
+  Future<void> clearExtractedPages() async {
+    await releaseAll();
+    final dir = await _getExtractedPagesRoot();
+    if (dir.existsSync()) {
+      await dir.delete(recursive: true);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Folder-based
   // -------------------------------------------------------------------------
@@ -241,6 +255,25 @@ class PageLoaderService {
 
   String _chapterKey(ChapterItem chapter) =>
       '${chapter.path}::${chapter.archiveEntryPrefix ?? ''}';
+
+  Future<Directory> _getExtractedPagesRoot() async {
+    final cacheDir = await getTemporaryDirectory();
+    return Directory(p.join(cacheDir.path, 'manga_pages'));
+  }
+
+  int _directorySize(Directory directory) {
+    var total = 0;
+    try {
+      for (final entity in directory.listSync(recursive: true)) {
+        if (entity is File) {
+          try {
+            total += entity.lengthSync();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
 }
 
 class _ExtractedChapter {
