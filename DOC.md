@@ -2,423 +2,715 @@
 
 ## Overview
 
-**Manga Reader** is a mobile application designed for reading manga and comics stored locally on your device. The app scans your device's storage to find manga folders and comic archives, organizes them into a library, and provides a smooth reading experience with vertical scroll viewing.
+**Manga Reader** is a local manga and comic reader for files stored on the user's device. The app lets the user choose a manga folder, scans folder-based manga and ZIP/CBZ archives, builds a visual library, tracks reading progress, and provides a focused reader with scrolling, paging, zoom, and resume support.
 
-## Application Purpose
-
-The main purpose of this application is to provide a clean, organized way to read manga and comics that you have downloaded and stored on your device. Instead of manually browsing through folders, the app automatically scans and organizes your collection, making it easy to find and read your favorite titles.
+The current codebase is implemented in Flutter, but this document describes the product behavior and should be treated as the feature specification for any future native Android/Kotlin rebuild.
 
 ## Platform Support
 
-- **Android**: Android 10 (API 29) and above
-- **iOS**: Supported
-- **Orientation**: Both portrait and landscape orientations are fully supported across all screens
+- **Primary platform**: Android
+- **Current Flutter targets present in the repo**: Android, iOS, web, Windows, macOS, and Linux scaffold folders
+- **Current Android storage approach**: storage permissions plus folder picker
+- **Orientation**: portrait and landscape are supported by the responsive layouts and reader behavior
 
-## User Interface
+## Visual Design
 
-### Visual Design
-
-The application uses a dark theme with teal/turquoise accent colors to reduce eye strain during reading sessions. The background is a dark greenish-black color, while interactive elements use a bright teal color to stand out clearly.
+The app uses a dark, reading-focused theme with teal accents.
 
 ### Color Scheme
 
-- **Background**: Dark greenish-black (#11221F)
-- **Surface Areas**: Dark teal (#234842)
-- **Primary Accent**: Bright teal/turquoise (#11D4B4)
-- **Text**: White and light gray tones
+- **Background**: dark green-black `#11221F`
+- **Surface areas**: dark teal `#234842`
+- **Primary accent**: bright teal `#11D4B4`
+- **Primary text**: white `#FFFFFF`
+- **Secondary text**: light gray `#B0B0B0`
+- **Reader background**: black
+- **Danger actions**: red accent
+- **Warnings**: amber
 
-### Screen Flow
+### UI Style
 
-The application consists of the following main screens:
-
-1. **Splash Screen** - Brief branded loading screen shown on app launch
-2. **Setup Screen** - First-time setup for new users
-3. **Login Screen** - Authentication gate to access the app
-4. **Library Screen** - Main screen showing your manga collection
-5. **Detail Screen** - Detailed view of a selected manga with chapter list
-6. **Reader Screen** - The actual manga reading interface
-7. **Settings Screen** - App configuration, authentication settings, and folder management
+- Most app screens use a dark background with surface-colored list sections, cards, dialogs, and input fields.
+- The library uses compact rounded cover cards.
+- The reader uses a black full-screen canvas with a translucent black top bar.
+- Icon buttons are used for navigation, sorting, filtering, search, settings, chapter movement, and reader settings.
+- Bottom sheets are used for reader settings and library filters.
+- Dialogs are used for scan warnings, destructive confirmations, and backup import confirmation.
 
 ---
 
-## Screens Overview
+## Screen Flow
+
+The app has seven main screens:
+
+1. **Splash Screen**
+2. **Setup Screen**
+3. **Login Screen**
+4. **Library Screen**
+5. **Detail Screen**
+6. **Reader Screen**
+7. **Settings Screen**
+
+Routing:
+
+- `/` - Splash
+- `/setup` - PIN setup or PIN change
+- `/login` - initial unlock
+- `/library` - main library
+- `/detail` - selected manga detail
+- `/reader` - selected chapter reader
+- `/settings` - app settings
+
+The app also has two global overlays:
+
+- **Privacy overlay**: shown immediately when the app becomes inactive to hide app-switcher previews.
+- **Lock overlay**: shown when returning from the background if a PIN exists, preserving the current navigation stack.
+
+---
+
+## Screens
 
 ### Splash Screen
 
-The splash screen is the first thing you see when launching the app. It displays for 1-2 seconds while the app checks your authentication state and loads saved library data in the background.
+The splash screen appears on launch while the app checks whether a PIN already exists.
 
 It shows:
 
-- App logo/icon centered on the dark background
-- App name below the logo
+- App icon/logo
+- App name
+- Dark themed background
 
-No user interaction is required. The app automatically navigates to:
+Navigation:
 
-- **Setup Screen** — if this is the first launch and no PIN has been created
-- **Login Screen** — if a PIN already exists
+- If no PIN exists, the app goes to **Setup Screen**.
+- If a PIN exists, the app goes to **Login Screen**.
 
 ### Setup Screen
 
-When you first install and launch the app, you will be greeted with a setup screen that guides you through securing your manga library. This screen appears only once when the app is used for the first time.
+The setup screen is used both for first-time PIN creation and for changing an existing PIN.
 
-On this screen, you will:
+First-time setup:
 
-- Create a 4-6 digit PIN to protect your manga library
-- Confirm your PIN by entering it again
-- Optionally enable biometric authentication (fingerprint only) for quick access
+- User creates a **4-digit PIN**.
+- User confirms the PIN.
+- If biometrics are available, user can enable **Fingerprint Login**.
+- On success, the app opens the Library Screen.
 
-The setup process is straightforward: enter your chosen PIN, confirm it, and decide whether to enable biometric login. This ensures that your reading history and library remain private.
+Changing PIN:
+
+- User must first enter the current PIN.
+- User then creates and confirms a new 4-digit PIN.
+
+Visible elements:
+
+- Lock icon
+- Current step title
+- PIN dots and numeric keypad
+- Error message area
+- Optional fingerprint toggle
+- Back button during confirmation step
 
 ### Login Screen
 
-Every time you open the app, you will be presented with a login screen to protect your content. This is your gateway to the application.
+The login screen protects access when the app starts and a PIN already exists.
 
-On this screen, you will:
+It includes:
 
-- Enter your 6-digit PIN to access your library
-- Use biometric authentication (if enabled) for quick one-touch access
-- See the app icon and title while authenticating
+- App branding
+- PIN keypad
+- Biometric unlock option when enabled
+- Error feedback for incorrect PIN
 
-The login screen provides a secure barrier, ensuring only authorized users can access your manga collection and reading progress.
+Successful unlock sends the user to the Library Screen.
 
 ### Library Screen
 
-The library screen is the main hub of the application. It displays your entire manga collection in an organized grid layout. This is where you spend most of your time browsing and selecting what to read.
+The library screen is the main browsing screen.
 
-**Top Bar** (left to right):
+Top bar:
 
-- **App name** - Displayed on the left
-- **Sort** - Sort your library by title (A-Z or Z-A) or by number of chapters (most or least)
-- **Search** - Tap to search for specific manga by title
-- **Settings** - Tap to navigate to the settings screen
+- App title: **Manga Reader**
+- Sort button
+- Filter button
+- Search button
+- Settings button
 
-**Refreshing the Library**
+Search:
 
-Pull down on the library screen to trigger a reload/rescan of your manga collection, similar to pull-to-refresh in a browser. This re-reads your currently selected folder and updates the library with any new or removed content.
+- Tapping search opens a search field below the top bar.
+- Search filters manga by title.
+- Closing search clears the query.
 
-**Scan Progress**
+Sort options:
 
-While a scan is running (on pull-to-refresh or after selecting a new folder in Settings), a progress indicator is shown below the top bar displaying:
+- Title A-Z
+- Title Z-A
+- Most Chapters
+- Fewest Chapters
+- Last Read
 
-- **Scanned count** — e.g., "Scanning... 12 / 47"
-- **Cancel button** — stops the scan immediately; the library shows whatever was found up to that point
+Filter options:
 
-The library grid populates in real time as each manga is discovered, so you do not need to wait for the full scan to finish before browsing.
+- All
+- Unread
+- Reading
+- Completed
 
-Below the header, your manga collection is displayed in a grid format. Each manga item shows:
+The filter button shows a badge when any filter other than **All** is active.
 
-- **Cover image** - The manga's cover artwork (or the first image if no cover is found)
-- **Title** - The name of the manga
-- **Chapter count** - How many chapters are available
-- **Reading status** - A "Reading" badge if you have started reading but not finished
+Library content:
 
-A special **Recently Read** section appears at the top of the library if you have started reading any manga. This section shows up to 8 recently read items with:
+- Recently Read horizontal row appears at the top when progress exists and search is not active.
+- Manga are displayed in a responsive grid.
+- Each manga card shows cover image, title, chapter count, and a **READING** badge when progress exists.
+
+Recently Read cards show:
 
 - Cover image
-- Title
-- Chapter and page you left off on
-- Time since you last read (shown as "5m ago", "2h ago", etc.)
-- A progress bar showing how far you are through the manga
+- Manga title
+- Chapter number
+- Page number
+- Last-read time such as `5m ago`, `2h ago`, `3d ago`, or `1w ago`
+- Overall progress bar
 
-When you tap on any manga in the library, you will navigate to its detail screen.
+Pull-to-refresh:
+
+- Reloads folder path and reading progress.
+- Starts a fresh scan if a folder is selected.
+
+Scan progress:
+
+- Shows `Scanning... current / total`
+- Shows a linear progress indicator
+- Includes a Cancel button
+- Adds discovered manga to the grid in batches while scanning
+
+Scan warnings:
+
+- Corrupted, password-protected, unsupported, or image-less archives are skipped.
+- After scan completion, a dialog lists skipped items and messages.
+
+Empty and error states:
+
+- No folder selected: prompts user to open Settings.
+- Folder missing/unavailable: offers **Choose folder** and **Try again**.
+- Folder selected but no manga found: shows a no-manga message.
+- Search/filter with no matches: shows a matching empty message.
 
 ### Detail Screen
 
-The detail screen shows comprehensive information about a selected manga. It provides access to all chapters and your reading progress.
+The detail screen shows a selected manga and its chapters.
 
-At the top of this screen, you will see:
+Top:
 
-- **Full-screen cover image** - A large banner-style cover image with a gradient overlay
-- **Manga title** - The name of the manga prominently displayed
+- App bar with back button and manga title
+- Large cover banner
+- Gradient overlay at the bottom of the cover
+- Manga title over the cover
 
-Below the cover area, you will find:
+Continue Reading:
 
-- **Continue Reading button** - If you have previously started reading this manga, a prominent button appears that lets you jump directly to where you left off, showing the exact chapter and page
-- **Chapter count** - Total number of chapters available
-- **Sort toggle** - A button to change the chapter order (ascending or descending)
+- Appears when progress exists.
+- Shows the chapter title and page number.
+- Opens the reader at the saved chapter and page.
 
-The chapter list displays all chapters available for the manga. Each chapter item shows:
+Chapter area:
 
-- **Chapter title** - The name or number of the chapter
-- **Page count** - How many pages are in that chapter
-- **Reading indicator** - If you are currently reading that chapter, it is highlighted with a special badge saying "READING"
-- **Last read page** - If you have read part of the chapter but not finished, it shows which page you left off on
+- Shows total chapter count.
+- Includes ascending/descending chapter sort toggle.
+- Lists every chapter.
 
-Tapping any chapter will open the reader screen starting from that chapter.
+Chapter rows show:
+
+- Chapter title
+- Page count
+- Progress text when available
+- `CONTINUE` badge for in-progress chapters
+- `DONE` badge for completed chapters
+- Chevron for unread chapters
+
+Tapping a chapter opens the reader. If that chapter has progress, it opens at the saved page.
 
 ### Reader Screen
 
-The reader screen is where the actual reading happens. This is the core feature of the application, designed to provide the best possible reading experience.
+The reader screen is the core reading experience.
 
-**Reading Mode**
+Supported reading modes:
 
-The reader uses **vertical scroll only**. Pages are stacked vertically and you scroll up and down to move through them. This works well for all manga formats and both portrait and landscape orientations.
+- **Vertical scrolling**
+- **Horizontal paging**
 
-**Top Bar**
+Reader settings are opened from the tune/settings icon in the top bar.
 
-The top bar contains (left to right):
+Top bar:
 
-- **Back icon** - Returns to the detail screen
-- **Current page / Total pages** - Displayed in the center (e.g., "5 / 120"). Tap this to open the page jump modal
-- **Prev/Next chapter buttons** - Navigate to the previous or next chapter, displayed on the right
+- Back button
+- Current chapter title
+- Current page / total pages pill
+- Reader settings button
+- Previous chapter button
+- Next chapter button
 
-**Page Jump**
+The page counter opens a page-jump bottom sheet.
 
-Tap the current page / total pages indicator in the center of the top bar to open a modal. Type the page number you want to go to and confirm. The reader will scroll to that page immediately.
+Page jump:
 
-**Zoom and Pan**
+- User enters a page number.
+- Reader jumps directly to that page.
+- Works in both vertical and horizontal reading modes.
 
-- **Pinch to zoom** - Use two fingers to zoom in or out
-- **Pan** - Drag around when zoomed in
-- Maximum zoom level is 4x
-- No double-tap zoom
+Reader settings:
 
-**Auto-Hiding Top Bar**
+- Toggle **Zoom**
+- Toggle **Page numbers**
+- Toggle **Lock reader controls**
+- Toggle reading mode between vertical scrolling and horizontal pages
+- In horizontal mode, toggle page fit between **fit page width** and **fit whole page**
+- Adjust image width from **40% to 100%**
 
-The top bar automatically hides after a few seconds of inactivity for an immersive reading experience. Tap anywhere on the screen to bring it back.
+Zoom:
 
-**Progress Auto-Save**
+- Disabled by default for natural scrolling.
+- When enabled, each page supports pinch-to-zoom and pan.
+- Maximum zoom is 4x.
+- Parent scrolling/paging is disabled while a page is zoomed in.
 
-Reading progress (chapter and page position) is saved automatically as you read, so you can always resume exactly where you left off.
+Page display:
 
-**Chapter Navigation**
+- Pages are rendered from local image files.
+- Broken or missing images show a broken-image placeholder.
+- Optional page labels show `current / total` under each page.
+- Image decoding uses width-aware caching to reduce memory use.
 
-Use the previous and next chapter buttons in the top bar to move between chapters. Progress is saved automatically when switching chapters.
+Reader controls:
+
+- Top bar auto-hides after a few seconds.
+- Tapping the reader toggles the top bar.
+- When controls are locked, the top bar stays hidden.
+- Tapping while locked reveals a temporary **Unlock** button.
+
+System UI:
+
+- When the top bar is visible, system overlays are shown.
+- When the top bar is hidden, the status bar is hidden for a more immersive reading view.
+- System UI is restored when leaving the reader.
+
+Progress:
+
+- Progress is saved automatically with debounce while reading.
+- Progress is saved immediately when leaving the reader or changing chapters.
+- Completion is recorded when the user reaches the last page of a chapter.
+
+Chapter navigation:
+
+- Previous/next chapter buttons move between chapters.
+- Current chapter progress is saved before switching.
+- The next chapter is preloaded near the end of the current chapter.
+
+Reader errors:
+
+- Missing source folder/archive
+- Unreadable source
+- Corrupted/password-protected/unsupported archive
+- No supported images
+
+Errors show a centered state with an icon, title, message, **Go back**, and **Try again**.
 
 ### Settings Screen
 
-The settings screen allows you to manage your manga folder, authentication, and app preferences.
+The settings screen is organized into sections.
 
-**Library Folder Section**
+#### Library
 
-- Displays the currently selected folder path
-- Tap the folder path to open a folder picker and select a new folder
-- After selecting a new folder, the library will rescan automatically
+- **Manga Folder**
+  - Shows selected folder path or `No folder selected`.
+  - Opens a folder picker.
+  - New folder is saved to preferences.
+  - User returns to Library and refreshes/rescans.
 
-**Biometric Authentication Section**
+#### Security
 
-- Toggle to enable or disable fingerprint authentication
-- Shows whether biometric authentication is available on your device
-- When enabling, you may need to verify with your biometric first
+- **Fingerprint Login**
+  - Visible only when biometrics are available.
+  - Enables/disables biometric unlock.
+- **Change PIN**
+  - Opens Setup Screen.
+  - Requires current PIN before setting a new one.
 
-**PIN Management Section**
+#### Storage
 
-- Change PIN option - Update your authentication PIN
-- Requires verifying your current PIN first, then entering a new PIN twice
+- **Thumbnail Cache**
+  - Shows current thumbnail cache size.
+- **Extracted Chapters**
+  - Shows size of temporary extracted archive pages.
+- **Clear Thumbnail Cache**
+  - Deletes cached thumbnails only.
+- **Clear Extracted Chapters**
+  - Deletes temporary files created when reading archive chapters.
+- **Clear All Storage Cache**
+  - Deletes thumbnails and extracted chapter files.
+  - Does not delete manga files or reading progress.
 
-**Storage Section**
+#### Backup
 
-- Clear Thumbnail Cache — Deletes all cached cover thumbnails to free up disk space. Thumbnails will be regenerated the next time the library is loaded.
+- **Export Backup**
+  - Saves a JSON backup file.
+  - Includes reading progress and reader preferences.
+  - Default filename format: `manga_reader_backup_YYYYMMDD.json`
+- **Import Backup**
+  - Lets user choose a JSON backup.
+  - Validates that the backup belongs to this app.
+  - Restores reader preferences.
+  - Merges reading progress.
+  - If duplicate progress exists, newer progress wins.
+  - Completion state is preserved when either copy marks a chapter completed.
 
-**Danger Zone**
+#### Danger Zone
 
-- Clear Authentication option - Removes all PIN and biometric settings
-- This will require you to go through the setup process again on next launch
+- **Reset App**
+  - Requires confirmation.
+  - Clears PIN/authentication state.
+  - Clears reading progress.
+  - Clears thumbnail cache.
+  - Clears extracted chapter cache.
+  - Sends user back to Setup Screen.
 
 ---
 
 ## Features Summary
 
-### Authentication & Security
+### Authentication and Privacy
 
-- PIN-based protection (4-6 digits)
-- Biometric authentication support (fingerprint)
-- First-time setup wizard
-- PIN change functionality
-- Option to clear all authentication data
+- 4-digit PIN setup
+- PIN verification on launch
+- PIN change flow with current PIN verification
+- Optional fingerprint login
+- App-switcher privacy overlay when app becomes inactive
+- Lock overlay when returning from background
+- Lock overlay preserves the current screen instead of resetting navigation
 
 ### Library Management
 
-- Automatic scanning of selected folder (configured in Settings)
-- Pull-to-refresh to reload the library
-- Support for both manga folders and comic archives
-- Grid-based library display with cover images
-- Search functionality by title
-- Sort by title (alphabetical) or chapter count
-- Recently read section showing last 8 items
-- Visual progress indicators
+- User-selected manga folder
+- Folder picker from Settings
+- Automatic scan when no cache exists
+- Pull-to-refresh scanning
+- Scan progress display
+- Cancelable scanning
+- Real-time batched library population during scan
+- Cached library metadata for faster startup
+- Search by title
+- Sort by title, chapter count, or last-read time
+- Filter by all, unread, reading, or completed
+- Recently Read section
+- Scan warning dialog for skipped archives
 
 ### Reading Experience
 
-- Vertical scroll mode only
-- Pinch-to-zoom (up to 4x) with pan support
-- Page jump via modal (tap page indicator in top bar)
-- Chapter navigation (previous/next) in top bar
-- Auto-hiding top bar for immersive reading
-- Auto-save progress (chapter and page position)
-- Portrait and landscape orientation support
+- Vertical scrolling mode
+- Horizontal paging mode
+- Reader settings bottom sheet
+- Page jump
+- Optional page labels
+- Optional pinch-to-zoom and pan
+- Zoom max 4x
+- Image width control from 40% to 100%
+- Horizontal page fit controls
+- Auto-hiding reader top bar
+- Lockable reader controls
+- Temporary unlock button
+- Previous/next chapter navigation
+- Preload next chapter near chapter end
+- Progress auto-save
+- Broken-image placeholders
 
 ### File Support
 
-- Folder-based manga (folders containing chapter subfolders or images)
-- Archive files (CBZ and ZIP formats)
-- Image formats: JPG, JPEG, PNG, WEBP
-- Automatic cover image detection
-- Natural sorting (handles "Chapter 2" vs "Chapter 10" correctly)
+- Folder-based manga
+- ZIP archives
+- CBZ archives
+- Supported image extensions:
+  - JPG
+  - JPEG
+  - PNG
+  - WEBP
+- Natural sorting for manga, chapters, and pages
+- Explicit cover file detection
+- First image fallback cover detection
 
-### Progress Tracking
+### Storage and Cache
 
-- Automatic saving of reading position
-- Continue reading feature (resumes where you left off)
-- Last read timestamp tracking
-- Progress indicators in library view
+- Thumbnail cache in app cache directory
+- Thumbnail cache max size: 500 MB
+- LRU eviction for thumbnails
+- Thumbnail invalidation when source modification time changes
+- Archive chapter extraction to temporary files
+- Manual clearing of thumbnails
+- Manual clearing of extracted chapter files
+- Manual clearing of both storage caches
+
+### Backup and Restore
+
+- JSON backup export
+- JSON backup import
+- Backup schema versioning
+- App identity validation
+- Reader settings backup
+- Reading progress backup
+- Merge-based restore
 
 ---
 
-## Empty States
+## Data Storage
 
-When there is nothing to display, the app shows a clear message rather than a blank screen.
+### PIN and Biometrics
 
-- **No folder selected** — The library shows a prompt directing the user to go to Settings and select a manga folder
-- **Folder selected but no manga found** — The library shows a message: "No manga found in this folder"
-- **Search with no results** — Shows "No results for [query]" below the search bar
+- PIN is stored in secure storage.
+- On Android, secure storage uses encrypted shared preferences.
+- Biometric enabled state is stored in shared preferences.
+
+### App Preferences
+
+Stored preferences include:
+
+- Manga folder path
+- Reading direction
+- Horizontal page fit
+- Reader image width
+- Reader controls locked state
+
+### Reading Progress
+
+Reading progress is stored in a hidden JSON file inside the selected manga folder:
+
+```text
+.manga_reader_progress.json
+```
+
+Progress entries use paths relative to the selected manga root. This makes backups and folder moves safer than storing absolute paths only.
+
+Progress records include:
+
+- Manga ID
+- Manga title
+- Cover path
+- Cover archive metadata
+- Chapter index
+- Page index
+- Total chapters
+- Completion flag
+- Last-read timestamp
+
+### Library Cache
+
+The app stores scanned manga metadata to avoid rescanning on every launch. The cache is cleared when the selected folder changes.
+
+### Thumbnail Cache
+
+Thumbnails are generated from cover images and saved to disk. Archive covers are read from ZIP/CBZ entries when needed.
+
+### Extracted Archive Pages
+
+Archive chapters are extracted to temporary files before reading. Extracted chapters are cached during use and can be cleared from Settings.
+
+---
+
+## File Organization Rules
+
+### Folder-Based Manga
+
+Style 1 - chapters as subfolders:
+
+```text
+Your Manga Folder/
+  Manga Title/
+    cover.jpg
+    Chapter 1/
+      001.jpg
+      002.jpg
+    Chapter 2/
+      001.jpg
+```
+
+Style 2 - single chapter with images directly in manga folder:
+
+```text
+Your Manga Folder/
+  Manga Title/
+    001.jpg
+    002.jpg
+    003.jpg
+```
+
+Rules:
+
+- Immediate subfolders are treated as chapters.
+- If a manga folder contains subfolders, loose root images are ignored except for cover detection.
+- If a manga folder has no subfolders, root images become a single chapter.
+- The scanner only scans one chapter level deep.
+- Deeper nested folders are ignored.
+
+### Archive-Based Manga
+
+Supported archive extensions:
+
+- `.zip`
+- `.cbz`
+
+Archive with chapter folders:
+
+```text
+manga_title.cbz
+  Chapter 1/
+    001.jpg
+    002.jpg
+  Chapter 2/
+    001.jpg
+```
+
+Flat archive:
+
+```text
+manga_title.zip
+  001.jpg
+  002.jpg
+  003.jpg
+```
+
+Rules:
+
+- Image entries are natural-sorted.
+- Top-level archive folders are treated as chapters.
+- Flat archives become one chapter.
+- Corrupted, password-protected, unsupported, or image-less archives are skipped and reported as warnings.
+- Archive reader extraction ignores files deeper than one level below a chapter prefix.
+
+### Cover Detection
+
+The app looks for cover-like files such as `cover.jpg`, `cover.png`, etc.
+
+Fallbacks:
+
+- Folder manga with chapters: first image of first chapter.
+- Single-folder manga: first non-cover image, or first image if every image is cover-like.
+- Archive manga: root cover entry if present, otherwise first image of first chapter or flat archive.
 
 ---
 
 ## Error Handling
 
-- **Folder no longer exists** (e.g. SD card removed or folder deleted) — The library shows a warning and prompts the user to reselect a folder in Settings
-- **Corrupted ZIP/CBZ** — The file is silently skipped during scanning and does not appear in the library; scanning continues normally for remaining files
-- **Image fails to load in reader** — A broken image placeholder is shown for that specific page; the rest of the chapter continues to load normally
+- Missing selected folder shows a library unavailable state.
+- Storage permission failure prevents scanning or folder selection.
+- Unreadable folders show a scan error.
+- Corrupted/password-protected/unsupported archives are skipped and listed after scan.
+- Archives with no supported images are skipped and listed after scan.
+- Missing chapter folder/archive shows a reader error.
+- Unreadable chapter source shows a reader error.
+- Broken individual page images show a placeholder while the rest of the chapter remains usable.
+- Invalid backup files show a format error.
+- Backups from another app are rejected.
+- Backups from a newer schema version are rejected with an update message.
 
 ---
 
-## Android Storage Permissions
+## Performance Notes
 
-Android 10 (API 29) and above uses scoped storage. The app explicitly requests the necessary storage permissions (`READ_EXTERNAL_STORAGE` or `MANAGE_EXTERNAL_STORAGE`) to allow the folder picker and scanner to access user-selected directories. If permission is denied, the app shows a clear explanation and prompts the user to grant access.
+### Library
 
----
+- Scanning runs in a background isolate.
+- Results are streamed back as scanner events.
+- UI updates are batched to avoid rebuilding for every discovered manga item.
+- Sorting is delayed until scan completion.
+- Grid rendering is virtualized through slivers.
+- Covers are loaded lazily.
+- Thumbnail cache reduces repeated cover decoding.
 
-## Performance
+### Reader
 
-### Non-Blocking Experience
-
-All heavy operations run in the background so the UI always stays responsive.
-
-**Library Screen**
-
-- Folder scanning runs in a **background thread** — the UI never freezes during a scan
-- The library grid populates in real time as manga are discovered
-- Cover images are **lazy loaded** — only visible grid items load their covers; off-screen items show a placeholder skeleton
-- The grid uses a **virtualized list** — only items currently visible on screen are rendered, keeping memory usage low for large collections
-
-**Reader Screen**
-
-- Pages are **loaded on demand** — only the current page plus a small buffer (3 pages ahead, 1 page behind) are kept in memory at a time
-- Each page shows a placeholder while its image loads
-- When nearing the end of a chapter, the first few pages of the next chapter are **preloaded in the background** to make chapter transitions feel instant
-
-### Caching
-
-**Cover image thumbnail cache** (disk-based)
-
-- Cover images are resized and compressed into thumbnails the first time they are loaded and saved to a local disk cache
-- On subsequent library opens, thumbnails are served from cache instantly without re-reading and decoding the original files
-- The cache is automatically invalidated for any manga whose source files have changed during a rescan
-
-The thumbnail cache has a maximum size of **500MB**. When the limit is reached, the least recently used thumbnails are evicted first (LRU eviction). No other caching is used — reader pages are fast enough from local disk with the on-demand buffer strategy, and library scan results are always read fresh to stay accurate.
+- Folder chapters are loaded by listing natural-sorted image paths.
+- Archive chapters are extracted once to temp storage, then read from extracted files.
+- Image dimensions are read before display to preserve aspect ratio.
+- Images use cache-width hints based on target display width.
+- Each page is wrapped in a repaint boundary.
+- Next chapter archive extraction is preloaded near the end of the current chapter.
+- Archive temp files can be released per chapter or all at once.
 
 ---
 
-## Expected File Organization
+## Native Android/Kotlin Rebuild Notes
 
-### Folder-Based Manga
+The app can be fully recreated as a native Android app.
 
-**Style 1 — Chapters as subfolders:**
-```
-Your Manga Folder/
-└── Manga Title/
-    ├── cover.jpg (optional)
-    ├── Chapter 1/
-    │   ├── 001.jpg
-    │   └── 002.jpg
-    └── Chapter 2/
-        └── ...
-```
+Recommended native equivalents:
 
-**Style 2 — Single chapter (images directly in manga folder):**
-```
-Your Manga Folder/
-└── Manga Title/
-    ├── 001.jpg
-    ├── 002.jpg
-    └── ...
-```
+- **UI**: Kotlin + Jetpack Compose
+- **Navigation**: Navigation Compose
+- **Preferences**: DataStore
+- **Secure PIN storage**: Jetpack Security / EncryptedSharedPreferences
+- **Biometrics**: Android BiometricPrompt
+- **Image loading**: Coil
+- **ZIP/CBZ**: Zip4j or Java/Kotlin ZIP APIs
+- **Background work**: Kotlin coroutines with `Dispatchers.IO`
+- **Library lists**: LazyVerticalGrid and LazyRow
+- **Reader paging**: HorizontalPager or Compose pager equivalent
+- **Folder access**: Storage Access Framework or all-files access depending on distribution needs
 
-**Conflict rule**: If a manga folder contains both subfolders and loose images, the app treats the **subfolders as chapters** and ignores the loose images at that level.
+Important migration consideration:
 
-**Nesting depth**: The app scans only one level deep for chapters. Folders nested deeper than one level below the manga root are ignored.
-
-### Archive-Based Manga
-
-Supported formats: **.ZIP** and **.CBZ** only.
-
-Archives can contain either flat images or subfolders (treated as chapters):
-
-```
-manga_title.zip
-├── Chapter 1/
-│   ├── 001.jpg
-│   └── 002.jpg
-└── Chapter 2/
-    └── ...
-```
-
-Or a flat archive (treated as a single chapter):
-```
-manga_title.zip
-├── 001.jpg
-├── 002.jpg
-└── ...
-```
-
-### Supported Image Formats
-
-- JPG, JPEG, PNG, WEBP
+- The current app uses broad storage access patterns. A Play Store-friendly Kotlin rebuild should strongly consider Android's Storage Access Framework unless all-files access is truly required.
 
 ---
 
-## User Experience Highlights
+## Development Task List for Rebuild
 
-1. **Quick Access**: After initial setup, access your library with a simple PIN or biometric
-2. **Easy Discovery**: Browse your entire collection in the grid library with cover images
-3. **Resume Reading**: The continue reading feature takes you exactly where you left off
-4. **Simple Reading**: Vertical scroll mode works great for all content types in any orientation
-5. **Privacy**: Your reading history and library are protected behind authentication
-6. **Organization**: Natural sorting ensures chapters appear in the correct order
-7. **Immersive Reading**: Auto-hiding top bar for a distraction-free experience
-8. **Easy Refresh**: Pull down on the library to reload your collection
+### Phase 1 - Native Foundation
 
----
+1. Create clean native Android project with Kotlin and Jetpack Compose.
+2. Set up app theme with current colors.
+3. Add navigation routes for all screens.
+4. Add app icon resources from `icon.png`.
+5. Add storage, biometric, image loading, archive, and security dependencies.
 
-## Development Task List
+### Phase 2 - Data and Services
 
-### Phase 1 — Foundation
-1. **Add dependencies** to `pubspec.yaml` (storage, ZIP/archive, biometrics, secure storage, image caching, etc.)
-2. **Set up folder structure** — `lib/screens/`, `lib/models/`, `lib/services/`, `lib/widgets/`
-3. **Theme & routing** — dark teal theme (#11221F, #11D4B4), named routes for all 7 screens
-4. **Android permissions** — storage permissions in `AndroidManifest.xml`
+1. Implement preferences storage.
+2. Implement secure PIN storage.
+3. Implement biometric service.
+4. Implement reading progress JSON storage in selected manga folder.
+5. Implement backup export/import.
+6. Implement library metadata cache.
+7. Implement thumbnail cache with 500 MB LRU eviction.
+8. Implement extracted archive page cache.
 
-### Phase 2 — Auth
-5. **Setup Screen** — first-time PIN creation (4-6 digits) + optional biometric toggle
-6. **Login Screen** — PIN entry + biometric auth
-7. **Auth service** — secure PIN storage, biometric check, first-launch detection
-8. **Splash Screen** — 1-2s display, auto-navigate to Setup or Login
+### Phase 3 - Library
 
-### Phase 3 — Library
-9. **Folder scanner service** — scan folder for manga (folders + CBZ/ZIP), natural sort, background thread
-10. **Library Screen** — grid view, cover images, chapter count, reading badges, Recently Read section
-11. **Search & sort** — by title (A-Z/Z-A), chapter count; search bar
-12. **Pull-to-refresh** with scan progress indicator + cancel button
-13. **Thumbnail cache service** — disk cache, 500MB LRU eviction, invalidation on rescan
+1. Implement folder picker and permission flow.
+2. Implement folder/archive scanner.
+3. Implement natural sorting.
+4. Implement scan progress and cancel.
+5. Implement scan warning handling.
+6. Implement Library Screen grid.
+7. Implement Recently Read row.
+8. Implement search, sort, and status filters.
 
-### Phase 4 — Reading
-14. **Detail Screen** — cover banner, chapter list, continue reading button, sort toggle, reading indicators
-15. **Reader Screen** — vertical scroll, pinch-to-zoom (4x), auto-hiding top bar, page jump modal
-16. **Progress service** — auto-save chapter + page position, timestamps
-17. **Chapter navigation** — prev/next buttons, preload next chapter
+### Phase 4 - Reader
 
-### Phase 5 — Settings & Polish
-18. **Settings Screen** — folder picker, biometric toggle, PIN change, clear thumbnail cache, danger zone
-19. **Empty states & error handling** — no folder, no manga found, missing folder, broken ZIP, broken image
-20. **Performance** — lazy loading covers, virtualized list, on-demand page buffering
+1. Implement Detail Screen.
+2. Implement vertical scrolling reader.
+3. Implement horizontal paging reader.
+4. Implement page jump.
+5. Implement zoom and pan.
+6. Implement reader settings.
+7. Implement auto-hiding and lockable controls.
+8. Implement progress auto-save.
+9. Implement chapter navigation and next-chapter preload.
+
+### Phase 5 - Settings and Polish
+
+1. Implement Settings sections.
+2. Implement cache size display and clearing actions.
+3. Implement backup import/export UI.
+4. Implement reset flow.
+5. Implement empty states and reader errors.
+6. Verify portrait and landscape layouts.
+7. Test large libraries and large archive chapters.
