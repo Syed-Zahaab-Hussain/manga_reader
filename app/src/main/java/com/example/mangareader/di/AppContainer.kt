@@ -11,7 +11,7 @@ import com.example.mangareader.data.cache.ThumbnailCache
 import com.example.mangareader.data.preferences.PreferencesRepository
 import com.example.mangareader.data.progress.ProgressRepository
 
-class AppContainer(private val appContext: Context) {
+class AppContainer(val appContext: Context) {
 
     val preferencesRepository: PreferencesRepository by lazy { PreferencesRepository(appContext) }
 

@@ -10,11 +10,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 data class PlaceholderAction(val label: String, val onClick: () -> Unit)
 
@@ -53,39 +51,8 @@ internal fun PlaceholderScreen(
 }
 
 @Composable
-fun SplashScreen(onTimeout: () -> Unit) {
-    LaunchedEffect(Unit) {
-        delay(1200)
-        onTimeout()
-    }
-    PlaceholderScreen(title = "Manga Reader", subtitle = "Starting...")
-}
-
-@Composable
-fun SetupScreen() {
-    PlaceholderScreen(title = "Setup PIN", subtitle = "Setup")
-}
-
-@Composable
-fun LoginScreen() {
-    PlaceholderScreen(title = "Unlock", subtitle = "Login")
-}
-
-@Composable
-fun LibraryScreen(
-    onOpenDetail: () -> Unit,
-    onOpenReader: () -> Unit,
-    onOpenSettings: () -> Unit
-) {
-    PlaceholderScreen(
-        title = "Manga Reader",
-        subtitle = "Library",
-        actions = listOf(
-            PlaceholderAction("Open Detail") { onOpenDetail() },
-            PlaceholderAction("Open Reader") { onOpenReader() },
-            PlaceholderAction("Open Settings") { onOpenSettings() }
-        )
-    )
+fun SetupScreen(actions: List<PlaceholderAction> = emptyList()) {
+    PlaceholderScreen(title = "Setup PIN", subtitle = "Setup", actions = actions)
 }
 
 @Composable

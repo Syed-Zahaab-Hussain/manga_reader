@@ -6,12 +6,12 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.mangareader.ui.screens.DetailScreen
-import com.example.mangareader.ui.screens.LibraryScreen
-import com.example.mangareader.ui.screens.LoginScreen
 import com.example.mangareader.ui.screens.ReaderScreen
 import com.example.mangareader.ui.screens.SettingsScreen
 import com.example.mangareader.ui.screens.SetupScreen
-import com.example.mangareader.ui.screens.SplashScreen
+import com.example.mangareader.ui.screens.library.LibraryScreen
+import com.example.mangareader.ui.screens.login.LoginScreen
+import com.example.mangareader.ui.screens.splash.SplashScreen
 
 @Composable
 fun AppNavHost(
@@ -25,19 +25,39 @@ fun AppNavHost(
     ) {
         composable(Routes.SPLASH) {
             SplashScreen(
-                onTimeout = {
+                onGoToLogin = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                },
+                onGoToLibrary = {
                     navController.navigate(Routes.LIBRARY) {
                         popUpTo(Routes.SPLASH) { inclusive = true }
                     }
                 }
             )
         }
-        composable(Routes.SETUP) { SetupScreen() }
-        composable(Routes.LOGIN) { LoginScreen() }
+        composable(Routes.SETUP) {
+            SetupScreen(
+                actions = listOf(
+                    com.example.mangareader.ui.screens.PlaceholderAction("Continue to Library") {
+                        navController.navigate(Routes.LIBRARY) { popUpTo(Routes.SETUP) { inclusive = true } }
+                    }
+                )
+            )
+        }
+        composable(Routes.LOGIN) {
+            LoginScreen(
+                onUnlocked = {
+                    navController.navigate(Routes.LIBRARY) {
+                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    }
+                }
+            )
+        }
         composable(Routes.LIBRARY) {
             LibraryScreen(
                 onOpenDetail = { navController.navigate(Routes.DETAIL) },
-                onOpenReader = { navController.navigate(Routes.READER) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) }
             )
         }

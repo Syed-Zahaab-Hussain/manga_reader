@@ -4,12 +4,12 @@
 
 **Manga Reader** is a local manga and comic reader for files stored on the user's device. The app lets the user choose a manga folder, scans folder-based manga and ZIP/CBZ archives, builds a visual library, tracks reading progress, and provides a focused reader with scrolling, paging, zoom, and resume support.
 
-The current codebase is implemented in Flutter, but this document describes the product behavior and should be treated as the feature specification for any future native Android/Kotlin rebuild.
+The current codebase is a native Android application implemented with Kotlin and Jetpack Compose. This document describes the target product behavior for the native rebuild.
 
 ## Platform Support
 
 - **Primary platform**: Android
-- **Current Flutter targets present in the repo**: Android, iOS, web, Windows, macOS, and Linux scaffold folders
+- **Current project target**: Native Android
 - **Current Android storage approach**: storage permissions plus folder picker
 - **Orientation**: portrait and landscape are supported by the responsive layouts and reader behavior
 
@@ -617,11 +617,11 @@ Fallbacks:
 
 ### Library
 
-- Scanning runs in a background isolate.
+- Scanning runs on a background coroutine dispatcher.
 - Results are streamed back as scanner events.
 - UI updates are batched to avoid rebuilding for every discovered manga item.
 - Sorting is delayed until scan completion.
-- Grid rendering is virtualized through slivers.
+- Grid rendering is virtualized through Compose lazy grids.
 - Covers are loaded lazily.
 - Thumbnail cache reduces repeated cover decoding.
 
