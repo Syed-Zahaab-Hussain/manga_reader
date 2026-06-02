@@ -64,8 +64,3 @@ fun DetailScreen() {
 fun ReaderScreen() {
     PlaceholderScreen(title = "Reader", subtitle = "Reader")
 }
-
-@Composable
-fun SettingsScreen() {
-    PlaceholderScreen(title = "Settings", subtitle = "Settings")
-}

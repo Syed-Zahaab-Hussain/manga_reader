@@ -90,6 +90,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         bootstrap(initial = false)
     }
 
+    fun reload() {
+        bootstrap(initial = false)
+    }
+
     fun startScan() {
         val root = folderFile ?: return
         cancelScan()

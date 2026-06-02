@@ -1,16 +1,18 @@
 package com.example.mangareader.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.mangareader.ui.screens.DetailScreen
 import com.example.mangareader.ui.screens.ReaderScreen
-import com.example.mangareader.ui.screens.SettingsScreen
 import com.example.mangareader.ui.screens.SetupScreen
 import com.example.mangareader.ui.screens.library.LibraryScreen
 import com.example.mangareader.ui.screens.login.LoginScreen
+import com.example.mangareader.ui.screens.settings.SettingsScreen
 import com.example.mangareader.ui.screens.splash.SplashScreen
 
 @Composable
@@ -55,14 +57,32 @@ fun AppNavHost(
                 }
             )
         }
-        composable(Routes.LIBRARY) {
+        composable(Routes.LIBRARY) { backStackEntry ->
+            val reloadRequested by backStackEntry.savedStateHandle
+                .getStateFlow(LIBRARY_RELOAD_KEY, false)
+                .collectAsStateWithLifecycle()
             LibraryScreen(
                 onOpenDetail = { navController.navigate(Routes.DETAIL) },
-                onOpenSettings = { navController.navigate(Routes.SETTINGS) }
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                reloadRequested = reloadRequested,
+                onReloadHandled = {
+                    backStackEntry.savedStateHandle[LIBRARY_RELOAD_KEY] = false
+                }
             )
         }
         composable(Routes.DETAIL) { DetailScreen() }
         composable(Routes.READER) { ReaderScreen() }
-        composable(Routes.SETTINGS) { SettingsScreen() }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = {
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set(LIBRARY_RELOAD_KEY, true)
+                    navController.popBackStack()
+                }
+            )
+        }
     }
 }
+
+private const val LIBRARY_RELOAD_KEY = "library_reload_requested"

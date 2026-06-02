@@ -52,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,11 +81,20 @@ import com.example.mangareader.ui.library.SortOption
 @Composable
 fun LibraryScreen(
     onOpenDetail: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    reloadRequested: Boolean = false,
+    onReloadHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val viewModel: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(reloadRequested) {
+        if (reloadRequested) {
+            viewModel.reload()
+            onReloadHandled()
+        }
+    }
 
     val pickFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
