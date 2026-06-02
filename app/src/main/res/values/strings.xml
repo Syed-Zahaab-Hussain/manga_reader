@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">Manga Reader</string>
+    <string name="biometric_prompt_title">Unlock Manga Reader</string>
+    <string name="biometric_prompt_subtitle">Use your fingerprint to unlock</string>
+    <string name="biometric_prompt_cancel">Cancel</string>
 </resources>

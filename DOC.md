@@ -661,6 +661,50 @@ Important migration consideration:
 
 ---
 
+## Kotlin Rebuild Architecture
+
+The rebuild uses a **single Gradle module** with a **layered MVVM** structure:
+
+```
+com.example.mangareader/
+├── MainActivity.kt
+├── MangaReaderApp.kt            # Application class, owns AppContainer
+├── di/
+│   └── AppContainer.kt          # manual dependency injection
+├── core/
+│   ├── natural/                 # NaturalSort
+│   └── io/                      # path helpers, image extension checks
+├── data/
+│   ├── preferences/             # DataStore repository (folder path, reader settings)
+│   ├── auth/                    # PinRepository (EncryptedSharedPreferences), BiometricManager wrapper
+│   ├── progress/                # .manga_reader_progress.json models + repository
+│   ├── backup/                  # export/import, schema validation, merge logic
+│   └── cache/                   # ThumbnailCache (500 MB LRU), ArchiveExtractCache
+├── domain/
+│   └── model/                   # MangaItem, ChapterItem, ProgressEntry, ScanWarning
+├── scanner/
+│   ├── MangaScanner.kt          # Flow<ScanEvent> background scan (folders + archives)
+│   ├── ArchiveSource.kt         # Zip4j wrapper: list/extract/skip detection
+│   └── CoverDetector.kt         # explicit cover + fallback rules
+└── ui/
+    ├── theme/
+    ├── navigation/
+    ├── components/              # shared widgets (MangaCard, PinKeypad, badges)
+    └── screens/
+        ├── splash/  ├── setup/  ├── login/
+        ├── library/ ├── detail/ ├── reader/  └── settings/
+        # each screen folder: XScreen.kt + XViewModel.kt (+ private sub-composables)
+```
+
+### Patterns
+
+- **MVVM**: one ViewModel per screen exposing `StateFlow<UiState>`; composables collect state with `collectAsStateWithLifecycle()`.
+- **Repositories**: ViewModels only talk to repositories; repositories own all file/storage access.
+- **Scanner as Flow**: `MangaScanner` emits batched results, progress events, warnings, and supports cancellation through coroutine scopes.
+- **Manual DI**: `AppContainer` is constructed in `MangaReaderApp` and passed into ViewModel factories. No Hilt/Koin.
+
+---
+
 ## Development Task List for Rebuild
 
 ### Phase 1 - Native Foundation

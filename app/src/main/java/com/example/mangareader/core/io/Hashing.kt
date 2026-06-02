@@ -1,0 +1,11 @@
+package com.example.mangareader.core.io
+
+import java.security.MessageDigest
+
+object Hashing {
+
+    fun sha256(input: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+}
