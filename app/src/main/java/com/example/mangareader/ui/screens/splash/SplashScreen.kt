@@ -35,7 +35,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun SplashScreen(
     onGoToLogin: () -> Unit,
-    onGoToLibrary: () -> Unit
+    onGoToSetup: () -> Unit
 ) {
     val context = LocalContext.current
     var visible by remember { mutableStateOf(false) }
@@ -52,7 +52,7 @@ fun SplashScreen(
         if (app.container.pinRepository.hasPin()) {
             onGoToLogin()
         } else {
-            onGoToLibrary()
+            onGoToSetup()
         }
     }
 

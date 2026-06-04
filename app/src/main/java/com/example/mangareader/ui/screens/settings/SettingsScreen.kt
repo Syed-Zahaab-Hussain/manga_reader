@@ -1,6 +1,8 @@
 package com.example.mangareader.ui.screens.settings
 
 import android.content.Intent
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,7 +27,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +45,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,6 +63,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.fragment.app.FragmentActivity
+import com.example.mangareader.MangaReaderApp
 import com.example.mangareader.core.io.FolderAccess
 import com.example.mangareader.ui.settings.CacheClearTarget
 import com.example.mangareader.ui.settings.SettingsUiState
@@ -68,11 +75,19 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onChangePin: () -> Unit,
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val activity = remember(context) { context.findFragmentActivity() }
+    val container = remember { (context.applicationContext as MangaReaderApp).container }
+    val biometricAvailable = remember(activity) {
+        activity?.let { container.biometricAuthenticator(it) }
+            ?.let { runCatching { it.isAvailable() }.getOrDefault(false) }
+            ?: false
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -151,6 +166,7 @@ fun SettingsScreen(
             } else {
                 SettingsContent(
                     state = state,
+                    biometricAvailable = biometricAvailable,
                     onChooseFolder = {
                         when {
                             FolderAccess.hasStorageAccess(context) -> folderPickerLauncher.launch(null)
@@ -166,7 +182,9 @@ fun SettingsScreen(
                     },
                     onImportBackup = {
                         importLauncher.launch(arrayOf("application/json", "text/json", "text/plain"))
-                    }
+                    },
+                    onBiometricChange = viewModel::setBiometricEnabled,
+                    onChangePin = onChangePin
                 )
             }
 
@@ -219,10 +237,13 @@ fun SettingsScreen(
 @Composable
 private fun SettingsContent(
     state: SettingsUiState,
+    biometricAvailable: Boolean,
     onChooseFolder: () -> Unit,
     onClearCache: (CacheClearTarget) -> Unit,
     onExportBackup: () -> Unit,
-    onImportBackup: () -> Unit
+    onImportBackup: () -> Unit,
+    onBiometricChange: (Boolean) -> Unit,
+    onChangePin: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -276,6 +297,53 @@ private fun SettingsContent(
                     Icon(Icons.Filled.DeleteOutline, contentDescription = null)
                     Spacer(modifier = Modifier.size(8.dp))
                     Text("Clear All Storage Cache")
+                }
+            }
+        }
+
+        if (state.hasPin) {
+            item {
+                SettingsSection(title = "Security") {
+                    if (biometricAvailable) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Fingerprint,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 12.dp)
+                            ) {
+                                Text("Fingerprint Login", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Use an enrolled fingerprint when unlocking the app.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.biometricEnabled,
+                                onCheckedChange = onBiometricChange,
+                                enabled = !state.operationInProgress
+                            )
+                        }
+                    }
+                    SettingsActionRow(
+                        icon = Icons.Filled.Lock,
+                        title = "Change PIN",
+                        subtitle = "Verify your current PIN before creating a new one.",
+                        actionLabel = "Change",
+                        enabled = !state.operationInProgress,
+                        onAction = onChangePin
+                    )
                 }
             }
         }
@@ -432,4 +500,10 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1024L * 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
     bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
     else -> String.format(Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+}
+
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
 }

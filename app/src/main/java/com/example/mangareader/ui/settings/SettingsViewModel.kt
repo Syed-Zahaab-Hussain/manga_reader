@@ -29,6 +29,8 @@ data class SettingsUiState(
     val loading: Boolean = true,
     val operationInProgress: Boolean = false,
     val storageAccessGranted: Boolean = false,
+    val hasPin: Boolean = false,
+    val biometricEnabled: Boolean = false,
     val folderPath: String? = null,
     val folderAvailable: Boolean = false,
     val thumbnailCacheBytes: Long = 0L,
@@ -56,6 +58,21 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun recheckStorageAccess() {
         _uiState.update {
             it.copy(storageAccessGranted = FolderAccess.hasStorageAccess(container.appContext))
+        }
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        if (!_uiState.value.hasPin) return
+        container.pinRepository.biometricEnabled = enabled
+        _uiState.update {
+            it.copy(
+                biometricEnabled = enabled,
+                feedbackMessage = if (enabled) {
+                    "Fingerprint login enabled."
+                } else {
+                    "Fingerprint login disabled."
+                }
+            )
         }
     }
 
@@ -163,6 +180,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 SettingsUiState(
                     loading = false,
                     storageAccessGranted = FolderAccess.hasStorageAccess(container.appContext),
+                    hasPin = container.pinRepository.hasPin(),
+                    biometricEnabled = container.pinRepository.biometricEnabled,
                     folderPath = preferences.mangaFolderPath,
                     folderAvailable = folder?.isDirectory == true,
                     thumbnailCacheBytes = thumbnailBytes,

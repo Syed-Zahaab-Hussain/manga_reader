@@ -51,11 +51,6 @@ internal fun PlaceholderScreen(
 }
 
 @Composable
-fun SetupScreen(actions: List<PlaceholderAction> = emptyList()) {
-    PlaceholderScreen(title = "Setup PIN", subtitle = "Setup", actions = actions)
-}
-
-@Composable
 fun DetailScreen() {
     PlaceholderScreen(title = "Detail", subtitle = "Detail")
 }

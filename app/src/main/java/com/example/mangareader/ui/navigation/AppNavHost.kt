@@ -9,15 +9,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.mangareader.ui.screens.DetailScreen
 import com.example.mangareader.ui.screens.ReaderScreen
-import com.example.mangareader.ui.screens.SetupScreen
 import com.example.mangareader.ui.screens.library.LibraryScreen
 import com.example.mangareader.ui.screens.login.LoginScreen
 import com.example.mangareader.ui.screens.settings.SettingsScreen
+import com.example.mangareader.ui.screens.setup.SetupScreen
 import com.example.mangareader.ui.screens.splash.SplashScreen
 
 @Composable
 fun AppNavHost(
     navController: NavHostController,
+    onSessionAuthenticated: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -32,8 +33,8 @@ fun AppNavHost(
                         popUpTo(Routes.SPLASH) { inclusive = true }
                     }
                 },
-                onGoToLibrary = {
-                    navController.navigate(Routes.LIBRARY) {
+                onGoToSetup = {
+                    navController.navigate(Routes.SETUP) {
                         popUpTo(Routes.SPLASH) { inclusive = true }
                     }
                 }
@@ -41,16 +42,26 @@ fun AppNavHost(
         }
         composable(Routes.SETUP) {
             SetupScreen(
-                actions = listOf(
-                    com.example.mangareader.ui.screens.PlaceholderAction("Continue to Library") {
-                        navController.navigate(Routes.LIBRARY) { popUpTo(Routes.SETUP) { inclusive = true } }
+                changeMode = false,
+                onComplete = {
+                    onSessionAuthenticated()
+                    navController.navigate(Routes.LIBRARY) {
+                        popUpTo(Routes.SETUP) { inclusive = true }
                     }
-                )
+                }
+            )
+        }
+        composable(Routes.CHANGE_PIN) {
+            SetupScreen(
+                changeMode = true,
+                onComplete = { navController.popBackStack() },
+                onCancel = { navController.popBackStack() }
             )
         }
         composable(Routes.LOGIN) {
             LoginScreen(
                 onUnlocked = {
+                    onSessionAuthenticated()
                     navController.navigate(Routes.LIBRARY) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
@@ -74,6 +85,7 @@ fun AppNavHost(
         composable(Routes.READER) { ReaderScreen() }
         composable(Routes.SETTINGS) {
             SettingsScreen(
+                onChangePin = { navController.navigate(Routes.CHANGE_PIN) },
                 onBack = {
                     navController.previousBackStackEntry
                         ?.savedStateHandle
