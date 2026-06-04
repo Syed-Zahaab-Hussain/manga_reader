@@ -55,7 +55,8 @@ class MainActivity : FragmentActivity() {
                     Box(modifier = Modifier.fillMaxSize()) {
                         AppNavHost(
                             navController = rememberNavController(),
-                            onSessionAuthenticated = privacySession::markSessionAuthenticated
+                            onSessionAuthenticated = privacySession::markSessionAuthenticated,
+                            onAppReset = privacySession::resetForSetup
                         )
 
                         if (privacyState.requiresUnlock && !privacyState.privacyShieldVisible) {

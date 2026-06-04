@@ -37,6 +37,8 @@ data class SettingsUiState(
     val extractedCacheBytes: Long = 0L,
     val pendingImportUri: Uri? = null,
     val pendingCacheClear: CacheClearTarget? = null,
+    val pendingAppReset: Boolean = false,
+    val resetCompleted: Boolean = false,
     val feedbackMessage: String? = null
 )
 
@@ -163,6 +165,53 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             }
             refreshCacheSizes()
             "Cleared ${target.label}."
+        }
+    }
+
+    fun requestAppReset() {
+        if (_uiState.value.operationInProgress) return
+        _uiState.update { it.copy(pendingAppReset = true) }
+    }
+
+    fun cancelAppReset() {
+        _uiState.update { it.copy(pendingAppReset = false) }
+    }
+
+    fun confirmAppReset() {
+        if (!_uiState.value.pendingAppReset || _uiState.value.operationInProgress) return
+        _uiState.update {
+            it.copy(
+                pendingAppReset = false,
+                operationInProgress = true,
+                feedbackMessage = null
+            )
+        }
+        viewModelScope.launch {
+            val result = runCatching {
+                val mangaRoot = currentMangaRoot()
+                container.progressRepository.reset(mangaRoot)
+                thumbnailCache.clear()
+                archiveExtractCache.clearAll()
+                libraryCacheRepository.clear()
+                preferencesRepository.clearAll()
+                FolderAccess.releasePersistedTreePermissions(container.appContext)
+                container.pinRepository.clearAll()
+            }
+            result.onSuccess {
+                _uiState.update {
+                    SettingsUiState(
+                        loading = false,
+                        resetCompleted = true
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        operationInProgress = false,
+                        feedbackMessage = error.message ?: "The app could not be reset completely."
+                    )
+                }
+            }
         }
     }
 

@@ -59,4 +59,20 @@ class PrivacySessionViewModelTest {
         assertTrue(viewModel.state.value.privacyShieldVisible)
         assertTrue(viewModel.state.value.requiresUnlock)
     }
+
+    @Test
+    fun appResetClearsProtectedAndLockedSessionState() {
+        val viewModel = PrivacySessionViewModel()
+        viewModel.initialize(pinExists = true, restoringProtectedContent = false)
+        viewModel.onActivityResumed()
+        viewModel.markSessionAuthenticated()
+        viewModel.onActivityPaused()
+        viewModel.onActivityStopped(pinExists = true, changingConfigurations = false)
+
+        viewModel.resetForSetup()
+
+        assertFalse(viewModel.hasProtectedContent())
+        assertFalse(viewModel.state.value.requiresUnlock)
+        assertFalse(viewModel.state.value.privacyShieldVisible)
+    }
 }

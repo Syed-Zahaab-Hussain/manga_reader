@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +77,7 @@ import java.util.Locale
 fun SettingsScreen(
     onBack: () -> Unit,
     onChangePin: () -> Unit,
+    onResetComplete: () -> Unit,
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val context = LocalContext.current
@@ -134,6 +136,10 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(state.resetCompleted) {
+        if (state.resetCompleted) onResetComplete()
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -184,7 +190,8 @@ fun SettingsScreen(
                         importLauncher.launch(arrayOf("application/json", "text/json", "text/plain"))
                     },
                     onBiometricChange = viewModel::setBiometricEnabled,
-                    onChangePin = onChangePin
+                    onChangePin = onChangePin,
+                    onResetApp = viewModel::requestAppReset
                 )
             }
 
@@ -232,6 +239,39 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (state.pendingAppReset) {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelAppReset,
+            title = {
+                Text(
+                    text = "Reset Manga Reader?",
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            text = {
+                Text(
+                    "This permanently removes your PIN, fingerprint preference, reading " +
+                        "progress, reader settings, selected manga folder, and all app caches. " +
+                        "Your manga files will not be deleted. This action cannot be undone."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = viewModel::confirmAppReset,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Reset everything")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelAppReset) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -243,7 +283,8 @@ private fun SettingsContent(
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onBiometricChange: (Boolean) -> Unit,
-    onChangePin: () -> Unit
+    onChangePin: () -> Unit,
+    onResetApp: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -391,19 +432,34 @@ private fun SettingsContent(
                 }
             }
         }
+
+        item {
+            SettingsSection(title = "Danger Zone", titleColor = MaterialTheme.colorScheme.error) {
+                SettingsActionRow(
+                    icon = Icons.Filled.DeleteOutline,
+                    title = "Reset App",
+                    subtitle = "Remove authentication, progress, settings, folder access, and caches.",
+                    actionLabel = "Reset",
+                    enabled = !state.operationInProgress,
+                    onAction = onResetApp,
+                    accentColor = MaterialTheme.colorScheme.error
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun SettingsSection(
     title: String,
+    titleColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = titleColor,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
         )
@@ -424,7 +480,8 @@ private fun SettingsActionRow(
     subtitle: String,
     actionLabel: String,
     enabled: Boolean,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    accentColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary
 ) {
     Row(
         modifier = Modifier
@@ -435,7 +492,7 @@ private fun SettingsActionRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = accentColor,
             modifier = Modifier.size(28.dp)
         )
         Column(
@@ -453,7 +510,14 @@ private fun SettingsActionRow(
             )
         }
         TextButton(onClick = onAction, enabled = enabled) {
-            Text(actionLabel)
+            Text(
+                text = actionLabel,
+                color = if (enabled) {
+                    accentColor
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                }
+            )
         }
     }
 }

@@ -62,5 +62,10 @@ class PrivacySessionViewModel : ViewModel() {
         }
     }
 
+    fun resetForSetup() {
+        protectedContentReached = false
+        _state.value = PrivacySessionState()
+    }
+
     fun hasProtectedContent(): Boolean = protectedContentReached
 }

@@ -14,6 +14,19 @@ import java.io.File
 
 object FolderAccess {
 
+    fun releasePersistedTreePermissions(context: Context) {
+        context.contentResolver.persistedUriPermissions.forEach { permission ->
+            var flags = 0
+            if (permission.isReadPermission) flags = flags or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (permission.isWritePermission) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            if (flags != 0) {
+                runCatching {
+                    context.contentResolver.releasePersistableUriPermission(permission.uri, flags)
+                }
+            }
+        }
+    }
+
     fun hasStorageAccess(context: Context): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()

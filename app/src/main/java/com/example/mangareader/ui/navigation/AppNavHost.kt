@@ -19,6 +19,7 @@ import com.example.mangareader.ui.screens.splash.SplashScreen
 fun AppNavHost(
     navController: NavHostController,
     onSessionAuthenticated: () -> Unit = {},
+    onAppReset: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -86,6 +87,13 @@ fun AppNavHost(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onChangePin = { navController.navigate(Routes.CHANGE_PIN) },
+                onResetComplete = {
+                    onAppReset()
+                    navController.navigate(Routes.SETUP) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onBack = {
                     navController.previousBackStackEntry
                         ?.savedStateHandle

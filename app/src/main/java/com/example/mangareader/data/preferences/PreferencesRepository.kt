@@ -39,6 +39,8 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setControlsLocked(locked: Boolean) = edit { it[Keys.CONTROLS_LOCKED] = locked }
 
+    suspend fun clearAll() = edit { it.clear() }
+
     private suspend fun edit(transform: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit { transform(it) }
     }
