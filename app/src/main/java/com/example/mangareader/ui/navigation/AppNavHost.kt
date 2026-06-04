@@ -5,10 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.example.mangareader.ui.screens.DetailScreen
+import androidx.navigation.navArgument
 import com.example.mangareader.ui.screens.ReaderScreen
+import com.example.mangareader.ui.screens.detail.DetailScreen
 import com.example.mangareader.ui.screens.library.LibraryScreen
 import com.example.mangareader.ui.screens.login.LoginScreen
 import com.example.mangareader.ui.screens.settings.SettingsScreen
@@ -74,7 +76,7 @@ fun AppNavHost(
                 .getStateFlow(LIBRARY_RELOAD_KEY, false)
                 .collectAsStateWithLifecycle()
             LibraryScreen(
-                onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                onOpenDetail = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 reloadRequested = reloadRequested,
                 onReloadHandled = {
@@ -82,8 +84,31 @@ fun AppNavHost(
                 }
             )
         }
-        composable(Routes.DETAIL) { DetailScreen() }
-        composable(Routes.READER) { ReaderScreen() }
+        composable(
+            route = Routes.DETAIL,
+            arguments = listOf(
+                navArgument("mangaId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val mangaId = backStackEntry.arguments?.getString("mangaId").orEmpty()
+            DetailScreen(
+                mangaId = mangaId,
+                onBack = { navController.popBackStack() },
+                onOpenChapter = { id, chapterIndex, pageIndex ->
+                    navController.navigate(Routes.reader(id, chapterIndex, pageIndex))
+                }
+            )
+        }
+        composable(
+            route = Routes.READER,
+            arguments = listOf(
+                navArgument("mangaId") { type = NavType.StringType },
+                navArgument("chapterIndex") { type = NavType.IntType },
+                navArgument("pageIndex") { type = NavType.IntType }
+            )
+        ) {
+            ReaderScreen()
+        }
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onChangePin = { navController.navigate(Routes.CHANGE_PIN) },

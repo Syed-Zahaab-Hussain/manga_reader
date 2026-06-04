@@ -25,12 +25,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items as rowItems
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -80,7 +80,7 @@ import com.example.mangareader.ui.library.SortOption
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
-    onOpenDetail: () -> Unit,
+    onOpenDetail: (String) -> Unit,
     onOpenSettings: () -> Unit,
     reloadRequested: Boolean = false,
     onReloadHandled: () -> Unit = {}
@@ -247,7 +247,7 @@ private fun LibraryTopBar(
             )
             Box {
                 IconButton(onClick = { sortMenuOpen = true }) {
-                    Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                 }
                 DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
                     SortOption.entries.forEach { option ->
@@ -342,7 +342,7 @@ private fun LibraryContent(
     state: LibraryUiState,
     viewModel: LibraryViewModel,
     onPickFolder: () -> Unit,
-    onOpenDetail: () -> Unit
+    onOpenDetail: (String) -> Unit
 ) {
     if (state.items.isEmpty() && !state.scanning) {
         val searching = state.searchQuery.isNotBlank()
@@ -388,7 +388,7 @@ private fun LibraryContent(
                                 coverPath = progress.coverPath,
                                 coverArchivePath = progress.coverArchivePath,
                                 coverEntryName = progress.coverEntryName,
-                                onClick = onOpenDetail,
+                                onClick = { onOpenDetail(progress.mangaId) },
                                 modifier = Modifier.width(140.dp)
                             )
                         }
@@ -411,7 +411,7 @@ private fun LibraryContent(
             MangaCard(
                 item = item,
                 progress = state.progressByMangaId[item.id],
-                onClick = onOpenDetail
+                onClick = { onOpenDetail(item.id) }
             )
         }
     }

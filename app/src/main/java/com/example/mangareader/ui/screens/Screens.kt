@@ -51,11 +51,6 @@ internal fun PlaceholderScreen(
 }
 
 @Composable
-fun DetailScreen() {
-    PlaceholderScreen(title = "Detail", subtitle = "Detail")
-}
-
-@Composable
 fun ReaderScreen() {
     PlaceholderScreen(title = "Reader", subtitle = "Reader")
 }
