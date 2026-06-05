@@ -37,6 +37,10 @@ class PreferencesRepository(private val context: Context) {
         it[Keys.IMAGE_WIDTH] = fraction.coerceIn(MIN_IMAGE_WIDTH, MAX_IMAGE_WIDTH)
     }
 
+    suspend fun setShowPageNumbers(show: Boolean) = edit { it[Keys.SHOW_PAGE_NUMBERS] = show }
+
+    suspend fun setZoomEnabled(enabled: Boolean) = edit { it[Keys.ZOOM_ENABLED] = enabled }
+
     suspend fun setControlsLocked(locked: Boolean) = edit { it[Keys.CONTROLS_LOCKED] = locked }
 
     suspend fun clearAll() = edit { it.clear() }
@@ -50,6 +54,8 @@ class PreferencesRepository(private val context: Context) {
         readingMode = enumOrDefault(this[Keys.READING_MODE], ReadingMode.VERTICAL),
         horizontalPageFit = enumOrDefault(this[Keys.PAGE_FIT], PageFit.WIDTH),
         imageWidthFraction = this[Keys.IMAGE_WIDTH] ?: DEFAULT_IMAGE_WIDTH,
+        showPageNumbers = this[Keys.SHOW_PAGE_NUMBERS] ?: false,
+        zoomEnabled = this[Keys.ZOOM_ENABLED] ?: false,
         controlsLocked = this[Keys.CONTROLS_LOCKED] ?: false
     )
 
@@ -61,6 +67,8 @@ class PreferencesRepository(private val context: Context) {
         val READING_MODE = stringPreferencesKey("reading_mode")
         val PAGE_FIT = stringPreferencesKey("horizontal_page_fit")
         val IMAGE_WIDTH = floatPreferencesKey("reader_image_width")
+        val SHOW_PAGE_NUMBERS = booleanPreferencesKey("reader_show_page_numbers")
+        val ZOOM_ENABLED = booleanPreferencesKey("reader_zoom_enabled")
         val CONTROLS_LOCKED = booleanPreferencesKey("reader_controls_locked")
     }
 

@@ -25,6 +25,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -57,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.mangareader.domain.model.ChapterItem
 import com.example.mangareader.domain.model.MangaItem
 import com.example.mangareader.domain.model.MangaProgress
+import com.example.mangareader.domain.model.pageIndexForChapter
 import com.example.mangareader.ui.components.CoverImage
 import com.example.mangareader.ui.detail.DetailUiState
 import com.example.mangareader.ui.detail.DetailViewModel
@@ -75,6 +79,7 @@ fun DetailScreen(
     )
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var deleteProgressDialogVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(reloadProgressRequested) {
         if (reloadProgressRequested) {
@@ -122,6 +127,7 @@ fun DetailScreen(
             state.manga != null -> DetailContent(
                 state = state,
                 onToggleChapterOrder = viewModel::toggleChapterOrder,
+                onRequestDeleteProgress = { deleteProgressDialogVisible = true },
                 onOpenChapter = onOpenChapter,
                 modifier = Modifier.padding(innerPadding)
             )
@@ -133,12 +139,43 @@ fun DetailScreen(
             )
         }
     }
+
+
+    if (deleteProgressDialogVisible) {
+        val title = state.manga?.title ?: "this manga"
+        AlertDialog(
+            onDismissRequest = { deleteProgressDialogVisible = false },
+            title = { Text("Delete reading progress?") },
+            text = {
+                Text(
+                    "Delete all saved page positions and completed chapter records for " +
+                        "“$title”? Your manga files will not be deleted."
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteProgressDialogVisible = false }) {
+                    Text("Cancel")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteProgressDialogVisible = false
+                        viewModel.deleteProgress()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun DetailContent(
     state: DetailUiState,
     onToggleChapterOrder: () -> Unit,
+    onRequestDeleteProgress: () -> Unit,
     onOpenChapter: (mangaId: String, chapterIndex: Int, pageIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -178,7 +215,10 @@ private fun DetailContent(
             ChapterHeader(
                 chapterCount = manga.chapters.size,
                 ascending = state.chaptersAscending,
-                onToggleOrder = onToggleChapterOrder
+                hasProgress = state.progress != null,
+                deletingProgress = state.deletingProgress,
+                onToggleOrder = onToggleChapterOrder,
+                onDeleteProgress = onRequestDeleteProgress
             )
         }
 
@@ -188,8 +228,7 @@ private fun DetailContent(
                 progress = state.progress,
                 onClick = {
                     val savedPage = state.progress
-                        ?.takeIf { it.chapterIndex == chapter.index }
-                        ?.pageIndex
+                        ?.pageIndexForChapter(chapter.index)
                         ?: 0
                     onOpenChapter(manga.id, chapter.index, savedPage)
                 }
@@ -315,7 +354,10 @@ private fun ContinueReadingCard(
 private fun ChapterHeader(
     chapterCount: Int,
     ascending: Boolean,
-    onToggleOrder: () -> Unit
+    hasProgress: Boolean,
+    deletingProgress: Boolean,
+    onToggleOrder: () -> Unit,
+    onDeleteProgress: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -333,6 +375,15 @@ private fun ChapterHeader(
                 text = chapterCountLabel(chapterCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(
+            onClick = onDeleteProgress,
+            enabled = hasProgress && !deletingProgress
+        ) {
+            Icon(
+                Icons.Filled.DeleteSweep,
+                contentDescription = "Delete this manga's reading progress"
             )
         }
         IconButton(onClick = onToggleOrder) {
@@ -355,7 +406,8 @@ private fun ChapterRow(
     onClick: () -> Unit
 ) {
     val completed = chapter.index in progress?.completedChapters.orEmpty()
-    val inProgress = !completed && progress?.chapterIndex == chapter.index
+    val savedPage = progress?.pageIndexForChapter(chapter.index)
+    val inProgress = !completed && savedPage != null
 
     Surface(onClick = onClick, color = Color.Transparent) {
         Row(
@@ -374,7 +426,7 @@ private fun ChapterRow(
                 )
                 Text(
                     text = if (inProgress) {
-                        pageProgressLabel(progress?.pageIndex ?: 0, chapter.pageCount)
+                        pageProgressLabel(savedPage ?: 0, chapter.pageCount)
                     } else {
                         pageCountLabel(chapter.pageCount)
                     },

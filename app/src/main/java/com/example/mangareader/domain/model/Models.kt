@@ -36,8 +36,14 @@ data class MangaProgress(
     val pageIndex: Int,
     val totalChapters: Int,
     val completedChapters: Set<Int>,
-    val lastReadTimestamp: Long
+    val lastReadTimestamp: Long,
+    val chapterPageIndices: Map<Int, Int> = emptyMap(),
+    val recentlyReadDismissedAt: Long = 0L
 )
+
+fun MangaProgress.pageIndexForChapter(chapterIndex: Int): Int? =
+    chapterPageIndices[chapterIndex]
+        ?: pageIndex.takeIf { this.chapterIndex == chapterIndex }
 
 enum class ReadingMode { VERTICAL, HORIZONTAL }
 
@@ -48,5 +54,7 @@ data class ReaderPreferences(
     val readingMode: ReadingMode,
     val horizontalPageFit: PageFit,
     val imageWidthFraction: Float,
+    val showPageNumbers: Boolean,
+    val zoomEnabled: Boolean,
     val controlsLocked: Boolean
 )

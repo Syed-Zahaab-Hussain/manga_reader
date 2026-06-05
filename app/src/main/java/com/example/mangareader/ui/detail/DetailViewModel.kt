@@ -21,6 +21,7 @@ data class DetailUiState(
     val manga: MangaItem? = null,
     val progress: MangaProgress? = null,
     val chaptersAscending: Boolean = true,
+    val deletingProgress: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -50,6 +51,26 @@ class DetailViewModel(
                 container.progressRepository.load(root)[mangaId]
             }.onSuccess { progress ->
                 _uiState.update { it.copy(progress = progress) }
+            }
+        }
+    }
+
+    fun deleteProgress() {
+        if (_uiState.value.progress == null || _uiState.value.deletingProgress) return
+        _uiState.update { it.copy(deletingProgress = true) }
+        viewModelScope.launch {
+            val removed = runCatching {
+                val root = container.preferencesRepository.snapshot().mangaFolderPath
+                    ?.let(::File)
+                    ?.takeIf { it.isDirectory }
+                    ?: error("The selected manga folder is unavailable.")
+                container.progressRepository.remove(root, mangaId)
+            }.getOrDefault(false)
+            _uiState.update {
+                it.copy(
+                    progress = if (removed) null else it.progress,
+                    deletingProgress = false
+                )
             }
         }
     }

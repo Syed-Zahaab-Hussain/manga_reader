@@ -77,6 +77,9 @@ fun AppNavHost(
                 .collectAsStateWithLifecycle()
             LibraryScreen(
                 onOpenDetail = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenReader = { mangaId, chapterIndex, pageIndex ->
+                    navController.navigate(Routes.reader(mangaId, chapterIndex, pageIndex))
+                },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 reloadRequested = reloadRequested,
                 onReloadHandled = {
@@ -124,9 +127,10 @@ fun AppNavHost(
                 chapterIndex = backStackEntry.arguments?.getInt("chapterIndex") ?: 0,
                 pageIndex = backStackEntry.arguments?.getInt("pageIndex") ?: 0,
                 onBack = {
-                    navController.previousBackStackEntry
-                        ?.savedStateHandle
-                        ?.set(DETAIL_PROGRESS_RELOAD_KEY, true)
+                    navController.previousBackStackEntry?.savedStateHandle?.apply {
+                        set(DETAIL_PROGRESS_RELOAD_KEY, true)
+                        set(LIBRARY_RELOAD_KEY, true)
+                    }
                     navController.popBackStack()
                 }
             )

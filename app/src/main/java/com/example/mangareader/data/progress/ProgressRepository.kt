@@ -31,6 +31,13 @@ class ProgressRepository {
         save(root, all)
     }
 
+    suspend fun remove(root: File, mangaId: String): Boolean {
+        val all = load(root).toMutableMap()
+        val removed = all.remove(mangaId) != null
+        if (removed) save(root, all)
+        return removed
+    }
+
     suspend fun save(root: File, progress: Map<String, MangaProgress>) = withContext(Dispatchers.IO) {
         val target = progressFile(root) ?: return@withContext
         val arr = JSONArray()
@@ -80,25 +87,48 @@ internal fun MangaProgress.toJson(): JSONObject = JSONObject()
     .put("pageIndex", pageIndex)
     .put("totalChapters", totalChapters)
     .put("completedChapters", JSONArray(completedChapters.sorted()))
+    .put(
+        "chapterPageIndices",
+        JSONObject().also { positions ->
+            (chapterPageIndices + (chapterIndex to pageIndex))
+                .toSortedMap()
+                .forEach { (chapter, page) -> positions.put(chapter.toString(), page) }
+        }
+    )
+    .put("recentlyReadDismissedAt", recentlyReadDismissedAt)
     .put("lastRead", lastReadTimestamp)
 
 internal fun JSONObject.toMangaProgress(): MangaProgress? {
     val id = optStringOrNull("mangaId") ?: return null
+    val activeChapterIndex = optInt("chapterIndex", 0)
+    val activePageIndex = optInt("pageIndex", 0).coerceAtLeast(0)
+    val chapterPageIndices = buildMap {
+        optJSONObject("chapterPageIndices")?.let { positions ->
+            positions.keys().forEach { key ->
+                val chapter = key.toIntOrNull() ?: return@forEach
+                val page = positions.optInt(key, -1)
+                if (chapter >= 0 && page >= 0) put(chapter, page)
+            }
+        }
+        putIfAbsent(activeChapterIndex, activePageIndex)
+    }
     return MangaProgress(
         mangaId = id,
         mangaTitle = optString("mangaTitle", ""),
         coverPath = optStringOrNull("coverPath"),
         coverArchivePath = optStringOrNull("coverArchive"),
         coverEntryName = optStringOrNull("coverEntry"),
-        chapterIndex = optInt("chapterIndex", 0),
-        pageIndex = optInt("pageIndex", 0),
+        chapterIndex = activeChapterIndex,
+        pageIndex = activePageIndex,
         totalChapters = optInt("totalChapters", 0),
         completedChapters = optJSONArray("completedChapters")
             ?.let { array ->
                 (0 until array.length()).mapNotNull { k -> if (array.isNull(k)) null else array.getInt(k) }.toSet()
             }
             ?: emptySet(),
-        lastReadTimestamp = optLong("lastRead", 0L)
+        lastReadTimestamp = optLong("lastRead", 0L),
+        chapterPageIndices = chapterPageIndices,
+        recentlyReadDismissedAt = optLong("recentlyReadDismissedAt", 0L)
     )
 }
 

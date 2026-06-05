@@ -47,6 +47,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -56,6 +59,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,17 +74,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.mangareader.core.io.FolderAccess
 import com.example.mangareader.domain.model.ScanWarning
+import com.example.mangareader.domain.model.MangaProgress
 import com.example.mangareader.ui.components.MangaCard
 import com.example.mangareader.ui.components.RecentlyReadCard
 import com.example.mangareader.ui.library.LibraryUiState
 import com.example.mangareader.ui.library.LibraryViewModel
 import com.example.mangareader.ui.library.MangaStatusFilter
 import com.example.mangareader.ui.library.SortOption
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     onOpenDetail: (String) -> Unit,
+    onOpenReader: (mangaId: String, chapterIndex: Int, pageIndex: Int) -> Unit,
     onOpenSettings: () -> Unit,
     reloadRequested: Boolean = false,
     onReloadHandled: () -> Unit = {}
@@ -88,6 +95,8 @@ fun LibraryScreen(
     val context = LocalContext.current
     val viewModel: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(reloadRequested) {
         if (reloadRequested) {
@@ -125,13 +134,14 @@ fun LibraryScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
-        LibraryTopBar(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            LibraryTopBar(
             searchActive = state.searchActive,
             searchQuery = state.searchQuery,
             sortOption = state.sortOption,
@@ -144,7 +154,7 @@ fun LibraryScreen(
             onOpenSettings = onOpenSettings
         )
 
-        when {
+            when {
             state.initializing -> LibraryLoadingIndicator()
 
             !state.storageAccessGranted -> CenteredMessage(
@@ -186,10 +196,32 @@ fun LibraryScreen(
                     state = state,
                     viewModel = viewModel,
                     onPickFolder = { pickFolderLauncher.launch(null) },
-                    onOpenDetail = onOpenDetail
+                    onOpenDetail = onOpenDetail,
+                    onOpenReader = onOpenReader,
+                    onDismissRecent = { progress ->
+                        viewModel.dismissRecentlyRead(progress)
+                        coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Removed ${progress.mangaTitle} from Recently Read",
+                                actionLabel = "Undo"
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.restoreRecentlyRead(progress)
+                            }
+                        }
+                    }
                 )
             }
         }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+        )
     }
 
     if (state.showWarningsDialog) {
@@ -342,7 +374,9 @@ private fun LibraryContent(
     state: LibraryUiState,
     viewModel: LibraryViewModel,
     onPickFolder: () -> Unit,
-    onOpenDetail: (String) -> Unit
+    onOpenDetail: (String) -> Unit,
+    onOpenReader: (mangaId: String, chapterIndex: Int, pageIndex: Int) -> Unit,
+    onDismissRecent: (MangaProgress) -> Unit
 ) {
     if (state.items.isEmpty() && !state.scanning) {
         val searching = state.searchQuery.isNotBlank()
@@ -388,7 +422,14 @@ private fun LibraryContent(
                                 coverPath = progress.coverPath,
                                 coverArchivePath = progress.coverArchivePath,
                                 coverEntryName = progress.coverEntryName,
-                                onClick = { onOpenDetail(progress.mangaId) },
+                                onClick = {
+                                    onOpenReader(
+                                        progress.mangaId,
+                                        progress.chapterIndex,
+                                        progress.pageIndex
+                                    )
+                                },
+                                onDismiss = { onDismissRecent(progress) },
                                 modifier = Modifier.width(140.dp)
                             )
                         }

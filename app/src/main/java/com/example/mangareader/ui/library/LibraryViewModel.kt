@@ -192,6 +192,30 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         applyDerivedLists()
     }
 
+    fun dismissRecentlyRead(progress: MangaProgress) {
+        updateRecentDismissal(
+            progress.copy(recentlyReadDismissedAt = progress.lastReadTimestamp)
+        )
+    }
+
+    fun restoreRecentlyRead(progress: MangaProgress) {
+        updateRecentDismissal(progress.copy(recentlyReadDismissedAt = 0L))
+    }
+
+    private fun updateRecentDismissal(progress: MangaProgress) {
+        val root = folderFile ?: return
+        progressMap = progressMap + (progress.mangaId to progress)
+        _uiState.update {
+            it.copy(
+                progressByMangaId = progressMap,
+                recentProgress = recentFrom(progressMap)
+            )
+        }
+        viewModelScope.launch {
+            progressRepository.upsert(root, progress)
+        }
+    }
+
     private fun bootstrap(initial: Boolean) {
         viewModelScope.launch {
             val granted = FolderAccess.hasStorageAccess(container.appContext)
@@ -305,7 +329,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun recentFrom(progress: Map<String, MangaProgress>): List<MangaProgress> =
         progress.values
-            .filter { it.lastReadTimestamp > 0L }
+            .filter(::isVisibleInRecentlyRead)
             .sortedByDescending { it.lastReadTimestamp }
             .take(RECENT_LIMIT)
 
@@ -321,3 +345,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 }
+
+internal fun isVisibleInRecentlyRead(progress: MangaProgress): Boolean =
+    progress.lastReadTimestamp > 0L &&
+        progress.lastReadTimestamp > progress.recentlyReadDismissedAt

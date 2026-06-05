@@ -44,6 +44,8 @@ class BackupRepository(
                     .put("readingMode", prefs.readingMode.name)
                     .put("horizontalPageFit", prefs.horizontalPageFit.name)
                     .put("imageWidth", prefs.imageWidthFraction.toDouble())
+                    .put("showPageNumbers", prefs.showPageNumbers)
+                    .put("zoomEnabled", prefs.zoomEnabled)
                     .put("controlsLocked", prefs.controlsLocked)
             )
             .put("progress", progressArray)
@@ -90,10 +92,25 @@ class BackupRepository(
     fun merge(current: MangaProgress?, incoming: MangaProgress): MangaProgress {
         current ?: return incoming
         val completed = current.completedChapters + incoming.completedChapters
-        return if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
-            incoming.copy(completedChapters = completed)
+        val currentChapterPages = current.chapterPageIndices +
+            (current.chapterIndex to current.pageIndex)
+        val incomingChapterPages = incoming.chapterPageIndices +
+            (incoming.chapterIndex to incoming.pageIndex)
+        val mergedChapterPages = if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
+            currentChapterPages + incomingChapterPages
         } else {
-            current.copy(completedChapters = completed)
+            incomingChapterPages + currentChapterPages
+        }
+        return if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
+            incoming.copy(
+                completedChapters = completed,
+                chapterPageIndices = mergedChapterPages
+            )
+        } else {
+            current.copy(
+                completedChapters = completed,
+                chapterPageIndices = mergedChapterPages
+            )
         }
     }
 
@@ -105,6 +122,12 @@ class BackupRepository(
         val width = prefs.optDouble("imageWidth", Double.NaN)
         if (!width.isNaN()) {
             preferencesRepository.setImageWidth(width.toFloat())
+        }
+        if (prefs.has("showPageNumbers")) {
+            preferencesRepository.setShowPageNumbers(prefs.optBoolean("showPageNumbers"))
+        }
+        if (prefs.has("zoomEnabled")) {
+            preferencesRepository.setZoomEnabled(prefs.optBoolean("zoomEnabled"))
         }
         if (prefs.has("controlsLocked")) {
             preferencesRepository.setControlsLocked(prefs.optBoolean("controlsLocked"))

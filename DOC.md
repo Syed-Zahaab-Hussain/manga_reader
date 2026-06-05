@@ -172,6 +172,8 @@ Recently Read cards show:
 - Page number
 - Last-read time such as `5m ago`, `2h ago`, `3d ago`, or `1w ago`
 - Overall progress bar
+- Dismiss button that removes only the Recently Read entry; reading progress is preserved
+- Undo action after dismissal
 
 Pull-to-refresh:
 
@@ -218,6 +220,7 @@ Chapter area:
 
 - Shows total chapter count.
 - Includes ascending/descending chapter sort toggle.
+- Includes a delete-progress action with confirmation when progress exists.
 - Lists every chapter.
 
 Chapter rows show:
@@ -477,6 +480,7 @@ Stored preferences include:
 - Reading direction
 - Horizontal page fit
 - Reader image width
+- Pinch-to-zoom enabled state
 - Reader controls locked state
 
 ### Reading Progress
@@ -497,8 +501,9 @@ Progress records include:
 - Cover archive metadata
 - Chapter index
 - Page index
+- Saved page index for each previously opened chapter
 - Total chapters
-- Completion flag
+- Completed chapter indices
 - Last-read timestamp
 
 ### Library Cache

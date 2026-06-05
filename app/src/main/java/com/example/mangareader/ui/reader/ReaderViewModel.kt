@@ -11,8 +11,13 @@ import com.example.mangareader.domain.model.ChapterItem
 import com.example.mangareader.domain.model.MangaItem
 import com.example.mangareader.domain.model.MangaProgress
 import com.example.mangareader.domain.model.ReadingMode
+import com.example.mangareader.domain.model.pageIndexForChapter
 import com.example.mangareader.data.preferences.PreferencesRepository
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,12 +34,17 @@ data class ReaderUiState(
     val currentPageIndex: Int = 0,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
     val imageWidthFraction: Float = PreferencesRepository.DEFAULT_IMAGE_WIDTH,
+    val showPageNumbers: Boolean = false,
+    val zoomEnabled: Boolean = false,
+    val controlsLocked: Boolean = false,
+    val canOpenPreviousChapter: Boolean = false,
+    val canOpenNextChapter: Boolean = false,
     val errorMessage: String? = null
 )
 
 class ReaderViewModel(
     private val mangaId: String,
-    private val chapterIndex: Int,
+    chapterIndex: Int,
     private val requestedPageIndex: Int,
     private val container: AppContainer
 ) : ViewModel() {
@@ -45,14 +55,17 @@ class ReaderViewModel(
     private var mangaRoot: File? = null
     private var existingProgress: MangaProgress? = null
     private var saveJob: Job? = null
+    private var chapterLoadJob: Job? = null
+    private var activeChapterIndex = chapterIndex
+    private var preload: ChapterPreload? = null
     private var completionRecorded = false
 
     init {
-        loadChapter()
+        loadChapter(chapterIndex = activeChapterIndex, pageIndex = requestedPageIndex)
     }
 
     fun retry() {
-        loadChapter()
+        loadChapter(chapterIndex = activeChapterIndex, pageIndex = 0)
     }
 
     fun setReadingMode(mode: ReadingMode) {
@@ -80,12 +93,36 @@ class ReaderViewModel(
         }
     }
 
+    fun setShowPageNumbers(show: Boolean) {
+        _uiState.update { it.copy(showPageNumbers = show) }
+        viewModelScope.launch {
+            container.preferencesRepository.setShowPageNumbers(show)
+        }
+    }
+
+    fun setZoomEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(zoomEnabled = enabled) }
+        viewModelScope.launch {
+            container.preferencesRepository.setZoomEnabled(enabled)
+        }
+    }
+
+    fun setControlsLocked(locked: Boolean) {
+        _uiState.update { it.copy(controlsLocked = locked) }
+        viewModelScope.launch {
+            container.preferencesRepository.setControlsLocked(locked)
+        }
+    }
+
     fun onPageVisible(pageIndex: Int) {
         val state = _uiState.value
         if (state.loading || state.pages.isEmpty()) return
         val safeIndex = pageIndex.coerceIn(0, state.pages.lastIndex)
         if (safeIndex != state.currentPageIndex) {
             _uiState.update { it.copy(currentPageIndex = safeIndex) }
+        }
+        if (shouldPreloadNextChapter(safeIndex, state.pages.lastIndex)) {
+            preloadNextChapter()
         }
         scheduleProgressSave()
     }
@@ -94,6 +131,15 @@ class ReaderViewModel(
         if (completionRecorded) return
         completionRecorded = true
         saveProgress(markCompleted = true)
+        preloadNextChapter()
+    }
+
+    fun openPreviousChapter() {
+        openAdjacentChapter(offset = -1)
+    }
+
+    fun openNextChapter() {
+        openAdjacentChapter(offset = 1)
     }
 
     fun saveBeforeExit(onSaved: () -> Unit) {
@@ -109,33 +155,70 @@ class ReaderViewModel(
         saveProgress(markCompleted = completionRecorded)
     }
 
-    private fun loadChapter() {
-        saveJob?.cancel()
-        _uiState.value = ReaderUiState(loading = true)
-        viewModelScope.launch {
+    private fun openAdjacentChapter(offset: Int) {
+        val state = _uiState.value
+        if (state.loading) return
+        val manga = state.manga ?: return
+        val currentChapter = state.chapter ?: return
+        val currentPosition = manga.chapters.indexOfFirst { it.index == currentChapter.index }
+        val targetChapter = manga.chapters.getOrNull(currentPosition + offset) ?: return
+        loadChapter(
+            chapterIndex = targetChapter.index,
+            pageIndex = existingProgress?.pageIndexForChapter(targetChapter.index) ?: 0,
+            saveCurrentChapter = true
+        )
+    }
+
+    private fun loadChapter(
+        chapterIndex: Int,
+        pageIndex: Int,
+        saveCurrentChapter: Boolean = false
+    ) {
+        chapterLoadJob?.cancel()
+        chapterLoadJob = viewModelScope.launch {
+            if (saveCurrentChapter) {
+                saveJob?.cancelAndJoin()
+                persistProgress(markCompleted = completionRecorded)
+            } else {
+                saveJob?.cancel()
+            }
+            activeChapterIndex = chapterIndex
+            _uiState.update { it.copy(loading = true, errorMessage = null) }
             val result = runCatching {
-                val manga = container.libraryCacheRepository.load()
+                val manga = _uiState.value.manga ?: container.libraryCacheRepository.load()
                     ?.items
                     ?.firstOrNull { it.id == mangaId }
                     ?: error("This manga is no longer available. Rescan the Library and try again.")
                 val chapter = manga.chapters.firstOrNull { it.index == chapterIndex }
                     ?: error("This chapter is no longer available.")
                 val preferences = container.preferencesRepository.snapshot()
-                mangaRoot = preferences.mangaFolderPath
-                    ?.let(::File)
-                    ?.takeIf { it.isDirectory }
-                    ?: error("The selected manga folder is missing or unavailable.")
-                existingProgress = container.progressRepository.load(mangaRoot)[mangaId]
-                val pages = container.chapterPageRepository.loadPages(chapter)
-                val initialPage = requestedPageIndex.coerceIn(0, pages.lastIndex)
+                if (mangaRoot == null) {
+                    mangaRoot = preferences.mangaFolderPath
+                        ?.let(::File)
+                        ?.takeIf { it.isDirectory }
+                        ?: error("The selected manga folder is missing or unavailable.")
+                }
+                if (existingProgress == null) {
+                    existingProgress = container.progressRepository.load(mangaRoot)[mangaId]
+                }
+                val pages = loadPagesUsingPreload(chapter)
+                val initialPage = pageIndex.coerceIn(0, pages.lastIndex)
+                val chapterPosition = manga.chapters.indexOfFirst { it.index == chapter.index }
                 LoadedChapter(
                     manga = manga,
                     chapter = chapter,
                     pages = pages,
                     initialPage = initialPage,
                     readingMode = preferences.readingMode,
-                    imageWidthFraction = preferences.imageWidthFraction
+                    imageWidthFraction = preferences.imageWidthFraction,
+                    showPageNumbers = preferences.showPageNumbers,
+                    zoomEnabled = preferences.zoomEnabled,
+                    controlsLocked = preferences.controlsLocked,
+                    canOpenPreviousChapter = chapterPosition > 0,
+                    canOpenNextChapter = chapterPosition in 0 until manga.chapters.lastIndex
                 )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
             }
             _uiState.value = result.fold(
                 onSuccess = { loaded ->
@@ -146,7 +229,12 @@ class ReaderViewModel(
                         pages = loaded.pages,
                         currentPageIndex = loaded.initialPage,
                         readingMode = loaded.readingMode,
-                        imageWidthFraction = loaded.imageWidthFraction
+                        imageWidthFraction = loaded.imageWidthFraction,
+                        showPageNumbers = loaded.showPageNumbers,
+                        zoomEnabled = loaded.zoomEnabled,
+                        controlsLocked = loaded.controlsLocked,
+                        canOpenPreviousChapter = loaded.canOpenPreviousChapter,
+                        canOpenNextChapter = loaded.canOpenNextChapter
                     )
                 },
                 onFailure = { error ->
@@ -156,7 +244,43 @@ class ReaderViewModel(
                     )
                 }
             )
+            result.getOrNull()?.let { loaded ->
+                completionRecorded = loaded.chapter.index in
+                    existingProgress?.completedChapters.orEmpty()
+                if (shouldPreloadNextChapter(loaded.initialPage, loaded.pages.lastIndex)) {
+                    preloadNextChapter()
+                }
+            }
         }
+    }
+
+    private suspend fun loadPagesUsingPreload(chapter: ChapterItem): List<File> {
+        val pending = preload?.takeIf { it.chapterIndex == chapter.index }
+        if (pending != null) {
+            preload = null
+            return pending.pages.await().getOrElse {
+                container.chapterPageRepository.loadPages(chapter)
+            }
+        }
+        preload?.pages?.cancel()
+        preload = null
+        return container.chapterPageRepository.loadPages(chapter)
+    }
+
+    private fun preloadNextChapter() {
+        val state = _uiState.value
+        val manga = state.manga ?: return
+        val chapter = state.chapter ?: return
+        val currentPosition = manga.chapters.indexOfFirst { it.index == chapter.index }
+        val nextChapter = manga.chapters.getOrNull(currentPosition + 1) ?: return
+        if (preload?.chapterIndex == nextChapter.index) return
+        preload?.pages?.cancel()
+        preload = ChapterPreload(
+            chapterIndex = nextChapter.index,
+            pages = viewModelScope.async {
+                runCatching { container.chapterPageRepository.loadPages(nextChapter) }
+            }
+        )
     }
 
     private fun scheduleProgressSave() {
@@ -197,7 +321,17 @@ class ReaderViewModel(
         val pages: List<File>,
         val initialPage: Int,
         val readingMode: ReadingMode,
-        val imageWidthFraction: Float
+        val imageWidthFraction: Float,
+        val showPageNumbers: Boolean,
+        val zoomEnabled: Boolean,
+        val controlsLocked: Boolean,
+        val canOpenPreviousChapter: Boolean,
+        val canOpenNextChapter: Boolean
+    )
+
+    private data class ChapterPreload(
+        val chapterIndex: Int,
+        val pages: Deferred<Result<List<File>>>
     )
 
     companion object {
@@ -217,6 +351,13 @@ class ReaderViewModel(
     }
 }
 
+internal fun shouldPreloadNextChapter(currentPageIndex: Int, lastPageIndex: Int): Boolean {
+    if (lastPageIndex < 0) return false
+    return currentPageIndex >= (lastPageIndex - PRELOAD_REMAINING_PAGE_COUNT).coerceAtLeast(0)
+}
+
+private const val PRELOAD_REMAINING_PAGE_COUNT = 2
+
 internal fun buildReaderProgress(
     manga: MangaItem,
     chapter: ChapterItem,
@@ -230,6 +371,9 @@ internal fun buildReaderProgress(
     } else {
         prior?.completedChapters.orEmpty()
     }
+    val priorChapterPages = prior?.let { progress ->
+        progress.chapterPageIndices + (progress.chapterIndex to progress.pageIndex)
+    }.orEmpty()
     return MangaProgress(
         mangaId = manga.id,
         mangaTitle = manga.title,
@@ -240,6 +384,8 @@ internal fun buildReaderProgress(
         pageIndex = pageIndex,
         totalChapters = manga.chapters.size,
         completedChapters = completed,
-        lastReadTimestamp = timestamp
+        lastReadTimestamp = timestamp,
+        chapterPageIndices = priorChapterPages + (chapter.index to pageIndex),
+        recentlyReadDismissedAt = 0L
     )
 }
