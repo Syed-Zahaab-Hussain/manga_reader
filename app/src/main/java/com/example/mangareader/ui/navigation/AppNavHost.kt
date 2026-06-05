@@ -9,10 +9,10 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.example.mangareader.ui.screens.ReaderScreen
 import com.example.mangareader.ui.screens.detail.DetailScreen
 import com.example.mangareader.ui.screens.library.LibraryScreen
 import com.example.mangareader.ui.screens.login.LoginScreen
+import com.example.mangareader.ui.screens.reader.ReaderScreen
 import com.example.mangareader.ui.screens.settings.SettingsScreen
 import com.example.mangareader.ui.screens.setup.SetupScreen
 import com.example.mangareader.ui.screens.splash.SplashScreen
@@ -91,11 +91,23 @@ fun AppNavHost(
             )
         ) { backStackEntry ->
             val mangaId = backStackEntry.arguments?.getString("mangaId").orEmpty()
+            val reloadProgressRequested by backStackEntry.savedStateHandle
+                .getStateFlow(DETAIL_PROGRESS_RELOAD_KEY, false)
+                .collectAsStateWithLifecycle()
             DetailScreen(
                 mangaId = mangaId,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set(LIBRARY_RELOAD_KEY, true)
+                    navController.popBackStack()
+                },
                 onOpenChapter = { id, chapterIndex, pageIndex ->
                     navController.navigate(Routes.reader(id, chapterIndex, pageIndex))
+                },
+                reloadProgressRequested = reloadProgressRequested,
+                onProgressReloadHandled = {
+                    backStackEntry.savedStateHandle[DETAIL_PROGRESS_RELOAD_KEY] = false
                 }
             )
         }
@@ -106,8 +118,18 @@ fun AppNavHost(
                 navArgument("chapterIndex") { type = NavType.IntType },
                 navArgument("pageIndex") { type = NavType.IntType }
             )
-        ) {
-            ReaderScreen()
+        ) { backStackEntry ->
+            ReaderScreen(
+                mangaId = backStackEntry.arguments?.getString("mangaId").orEmpty(),
+                chapterIndex = backStackEntry.arguments?.getInt("chapterIndex") ?: 0,
+                pageIndex = backStackEntry.arguments?.getInt("pageIndex") ?: 0,
+                onBack = {
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set(DETAIL_PROGRESS_RELOAD_KEY, true)
+                    navController.popBackStack()
+                }
+            )
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(
@@ -131,3 +153,4 @@ fun AppNavHost(
 }
 
 private const val LIBRARY_RELOAD_KEY = "library_reload_requested"
+private const val DETAIL_PROGRESS_RELOAD_KEY = "detail_progress_reload_requested"

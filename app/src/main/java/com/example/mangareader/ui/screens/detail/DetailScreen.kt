@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,12 +67,21 @@ fun DetailScreen(
     mangaId: String,
     onBack: () -> Unit,
     onOpenChapter: (mangaId: String, chapterIndex: Int, pageIndex: Int) -> Unit,
+    reloadProgressRequested: Boolean = false,
+    onProgressReloadHandled: () -> Unit = {},
     viewModel: DetailViewModel = viewModel(
         key = "detail_$mangaId",
         factory = DetailViewModel.factory(mangaId)
     )
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(reloadProgressRequested) {
+        if (reloadProgressRequested) {
+            viewModel.refreshProgress()
+            onProgressReloadHandled()
+        }
+    }
 
     BackHandler(onBack = onBack)
 

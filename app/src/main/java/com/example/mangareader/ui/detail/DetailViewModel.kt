@@ -40,6 +40,20 @@ class DetailViewModel(
         _uiState.update { it.copy(chaptersAscending = !it.chaptersAscending) }
     }
 
+    fun refreshProgress() {
+        if (_uiState.value.manga == null) return
+        viewModelScope.launch {
+            runCatching {
+                val root = container.preferencesRepository.snapshot().mangaFolderPath
+                    ?.let(::File)
+                    ?.takeIf { it.isDirectory }
+                container.progressRepository.load(root)[mangaId]
+            }.onSuccess { progress ->
+                _uiState.update { it.copy(progress = progress) }
+            }
+        }
+    }
+
     private fun loadManga() {
         viewModelScope.launch {
             val result = runCatching {

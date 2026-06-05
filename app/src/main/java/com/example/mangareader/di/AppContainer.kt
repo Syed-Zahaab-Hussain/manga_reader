@@ -10,6 +10,7 @@ import com.example.mangareader.data.cache.LibraryCacheRepository
 import com.example.mangareader.data.cache.ThumbnailCache
 import com.example.mangareader.data.preferences.PreferencesRepository
 import com.example.mangareader.data.progress.ProgressRepository
+import com.example.mangareader.data.reader.ChapterPageRepository
 
 class AppContainer(val appContext: Context) {
 
@@ -24,6 +25,10 @@ class AppContainer(val appContext: Context) {
     val thumbnailCache: ThumbnailCache by lazy { ThumbnailCache(appContext) }
 
     val archiveExtractCache: ArchiveExtractCache by lazy { ArchiveExtractCache(appContext) }
+
+    val chapterPageRepository: ChapterPageRepository by lazy {
+        ChapterPageRepository(archiveExtractCache)
+    }
 
     val backupRepository: BackupRepository by lazy {
         BackupRepository(preferencesRepository, progressRepository)

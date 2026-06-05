@@ -3,6 +3,7 @@ package com.example.mangareader.data.cache
 import android.content.Context
 import com.example.mangareader.core.io.Hashing
 import com.example.mangareader.core.io.ImageSupport
+import com.example.mangareader.core.natural.NaturalSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.lingala.zip4j.ZipFile
@@ -30,25 +31,27 @@ class ArchiveExtractCache(private val context: Context) {
                         ?: throw IOException("Unreadable archive: ${archiveFile.name}")
                     val normalizedPrefix = prefix.trim('/').replace('\\', '/')
                     val prefixWithSlash = if (normalizedPrefix.isEmpty()) "" else "$normalizedPrefix/"
-                    var index = 0
-                    for (header in headers) {
-                        if (header.isDirectory) continue
+                    val chapterHeaders = headers.mapNotNull { header ->
+                        if (header.isDirectory) return@mapNotNull null
                         val name = header.fileName.replace('\\', '/')
                         val relative = if (prefixWithSlash.isEmpty()) {
                             name
                         } else {
-                            if (!name.startsWith(prefixWithSlash)) continue
+                            if (!name.startsWith(prefixWithSlash)) return@mapNotNull null
                             name.removePrefix(prefixWithSlash)
                         }
-                        if (relative.isEmpty()) continue
-                        if (relative.contains('/') || relative.contains("..")) continue
-                        if (!ImageSupport.isImage(relative)) continue
+                        if (relative.isEmpty()) return@mapNotNull null
+                        if (relative.contains('/') || relative.contains("..")) return@mapNotNull null
+                        if (!ImageSupport.isImage(relative)) return@mapNotNull null
+                        header to relative
+                    }.sortedWith { a, b -> NaturalSort.compare(a.second, b.second) }
+                    for ((index, entry) in chapterHeaders.withIndex()) {
+                        val (header, relative) = entry
                         val extension = relative.substringAfterLast('.', "jpg").lowercase()
                         val out = File(chapterDir, "%04d.$extension".format(index))
                         zip.getInputStream(header).use { input ->
                             out.outputStream().use { output -> input.copyTo(output) }
                         }
-                        index++
                     }
                 }
             } catch (e: ZipException) {
