@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.mangareader.MangaReaderApp
+import com.example.mangareader.core.io.PortablePath
 import com.example.mangareader.di.AppContainer
 import com.example.mangareader.domain.model.ChapterItem
 import com.example.mangareader.domain.model.MangaItem
@@ -309,7 +310,8 @@ class ReaderViewModel(
             pageIndex = state.currentPageIndex,
             prior = existingProgress,
             markCompleted = markCompleted,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            mangaRoot = root
         )
         container.progressRepository.upsert(root, updated)
         existingProgress = updated
@@ -364,7 +366,8 @@ internal fun buildReaderProgress(
     pageIndex: Int,
     prior: MangaProgress?,
     markCompleted: Boolean,
-    timestamp: Long
+    timestamp: Long,
+    mangaRoot: File? = null
 ): MangaProgress {
     val completed = if (markCompleted) {
         prior?.completedChapters.orEmpty() + chapter.index
@@ -377,8 +380,8 @@ internal fun buildReaderProgress(
     return MangaProgress(
         mangaId = manga.id,
         mangaTitle = manga.title,
-        coverPath = manga.coverPath,
-        coverArchivePath = manga.coverArchivePath,
+        coverPath = PortablePath.relativeToRoot(mangaRoot, manga.coverPath),
+        coverArchivePath = PortablePath.relativeToRoot(mangaRoot, manga.coverArchivePath),
         coverEntryName = manga.coverEntryName,
         chapterIndex = chapter.index,
         pageIndex = pageIndex,

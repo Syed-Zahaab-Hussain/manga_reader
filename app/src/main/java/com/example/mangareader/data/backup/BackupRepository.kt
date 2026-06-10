@@ -33,7 +33,9 @@ class BackupRepository(
     suspend fun export(output: OutputStream, mangaRoot: File?) = withContext(Dispatchers.IO) {
         val prefs = preferencesRepository.snapshot()
         val progressArray = JSONArray()
-        progressRepository.load(mangaRoot).values.forEach { progressArray.put(it.toJson()) }
+        progressRepository.load(mangaRoot).values.forEach {
+            progressArray.put(it.toJson(mangaRoot))
+        }
         val doc = JSONObject()
             .put(KEY_APP, APP_ID)
             .put(KEY_BACKUP_SCHEMA_VERSION, BACKUP_SCHEMA_VERSION)
@@ -90,28 +92,7 @@ class BackupRepository(
     }
 
     fun merge(current: MangaProgress?, incoming: MangaProgress): MangaProgress {
-        current ?: return incoming
-        val completed = current.completedChapters + incoming.completedChapters
-        val currentChapterPages = current.chapterPageIndices +
-            (current.chapterIndex to current.pageIndex)
-        val incomingChapterPages = incoming.chapterPageIndices +
-            (incoming.chapterIndex to incoming.pageIndex)
-        val mergedChapterPages = if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
-            currentChapterPages + incomingChapterPages
-        } else {
-            incomingChapterPages + currentChapterPages
-        }
-        return if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
-            incoming.copy(
-                completedChapters = completed,
-                chapterPageIndices = mergedChapterPages
-            )
-        } else {
-            current.copy(
-                completedChapters = completed,
-                chapterPageIndices = mergedChapterPages
-            )
-        }
+        return mergeProgress(current, incoming)
     }
 
     private suspend fun applyPreferences(prefs: JSONObject) {
@@ -145,5 +126,30 @@ class BackupRepository(
             val format = SimpleDateFormat("yyyyMMdd", Locale.US)
             return "${BACKUP_FILE_PREFIX}_${format.format(Date(timestampMs))}.json"
         }
+    }
+}
+
+internal fun mergeProgress(current: MangaProgress?, incoming: MangaProgress): MangaProgress {
+    current ?: return incoming
+    val completed = current.completedChapters + incoming.completedChapters
+    val currentChapterPages = current.chapterPageIndices +
+        (current.chapterIndex to current.pageIndex)
+    val incomingChapterPages = incoming.chapterPageIndices +
+        (incoming.chapterIndex to incoming.pageIndex)
+    val mergedChapterPages = if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
+        currentChapterPages + incomingChapterPages
+    } else {
+        incomingChapterPages + currentChapterPages
+    }
+    return if (incoming.lastReadTimestamp >= current.lastReadTimestamp) {
+        incoming.copy(
+            completedChapters = completed,
+            chapterPageIndices = mergedChapterPages
+        )
+    } else {
+        current.copy(
+            completedChapters = completed,
+            chapterPageIndices = mergedChapterPages
+        )
     }
 }

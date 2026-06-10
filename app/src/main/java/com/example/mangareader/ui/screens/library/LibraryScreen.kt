@@ -73,6 +73,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.mangareader.core.io.FolderAccess
+import com.example.mangareader.core.io.PortablePath
 import com.example.mangareader.domain.model.ScanWarning
 import com.example.mangareader.domain.model.MangaProgress
 import com.example.mangareader.ui.components.MangaCard
@@ -82,6 +83,7 @@ import com.example.mangareader.ui.library.LibraryViewModel
 import com.example.mangareader.ui.library.MangaStatusFilter
 import com.example.mangareader.ui.library.SortOption
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -419,8 +421,14 @@ private fun LibraryContent(
                         rowItems(state.recentProgress) { progress ->
                             RecentlyReadCard(
                                 progress = progress,
-                                coverPath = progress.coverPath,
-                                coverArchivePath = progress.coverArchivePath,
+                                coverPath = PortablePath.resolve(
+                                    state.folderPath?.let(::File),
+                                    progress.coverPath
+                                ),
+                                coverArchivePath = PortablePath.resolve(
+                                    state.folderPath?.let(::File),
+                                    progress.coverArchivePath
+                                ),
                                 coverEntryName = progress.coverEntryName,
                                 onClick = {
                                     onOpenReader(
@@ -430,10 +438,11 @@ private fun LibraryContent(
                                     )
                                 },
                                 onDismiss = { onDismissRecent(progress) },
-                                modifier = Modifier.width(140.dp)
+                                modifier = Modifier.width(152.dp)
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
         }

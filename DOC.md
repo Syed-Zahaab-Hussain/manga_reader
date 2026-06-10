@@ -168,12 +168,12 @@ Recently Read cards show:
 
 - Cover image
 - Manga title
-- Chapter number
-- Page number
+- Exact chapter and page numbers, such as `Chapter 3 of 6 · Page 14`
 - Last-read time such as `5m ago`, `2h ago`, `3d ago`, or `1w ago`
-- Overall progress bar
 - Dismiss button that removes only the Recently Read entry; reading progress is preserved
 - Undo action after dismissal
+
+Tapping a Recently Read card opens its saved chapter and page. Returning from the reader opens that manga's Detail Screen before returning to the Library.
 
 Pull-to-refresh:
 
@@ -213,7 +213,7 @@ Top:
 Continue Reading:
 
 - Appears when progress exists.
-- Shows the chapter title and page number.
+- Uses a compact tappable row showing the chapter title and page number.
 - Opens the reader at the saved chapter and page.
 
 Chapter area:

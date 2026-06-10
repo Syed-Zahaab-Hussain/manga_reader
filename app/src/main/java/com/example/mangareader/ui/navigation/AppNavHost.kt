@@ -78,6 +78,7 @@ fun AppNavHost(
             LibraryScreen(
                 onOpenDetail = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenReader = { mangaId, chapterIndex, pageIndex ->
+                    navController.navigate(Routes.detail(mangaId))
                     navController.navigate(Routes.reader(mangaId, chapterIndex, pageIndex))
                 },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },

@@ -1,5 +1,6 @@
 package com.example.mangareader.data.progress
 
+import com.example.mangareader.core.io.PortablePath
 import com.example.mangareader.domain.model.MangaProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,7 +42,9 @@ class ProgressRepository {
     suspend fun save(root: File, progress: Map<String, MangaProgress>) = withContext(Dispatchers.IO) {
         val target = progressFile(root) ?: return@withContext
         val arr = JSONArray()
-        progress.values.sortedBy { it.mangaTitle.lowercase() }.forEach { arr.put(it.toJson()) }
+        progress.values.sortedBy { it.mangaTitle.lowercase() }.forEach {
+            arr.put(it.toJson(root))
+        }
         val doc = JSONObject()
             .put(KEY_APP, APP_ID)
             .put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
@@ -77,11 +80,11 @@ class ProgressRepository {
     }
 }
 
-internal fun MangaProgress.toJson(): JSONObject = JSONObject()
+internal fun MangaProgress.toJson(root: File? = null): JSONObject = JSONObject()
     .put("mangaId", mangaId)
     .put("mangaTitle", mangaTitle)
-    .put("coverPath", coverPath)
-    .put("coverArchive", coverArchivePath)
+    .put("coverPath", PortablePath.relativeToRoot(root, coverPath))
+    .put("coverArchive", PortablePath.relativeToRoot(root, coverArchivePath))
     .put("coverEntry", coverEntryName)
     .put("chapterIndex", chapterIndex)
     .put("pageIndex", pageIndex)

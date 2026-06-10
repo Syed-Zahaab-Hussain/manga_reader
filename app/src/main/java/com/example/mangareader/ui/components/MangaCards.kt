@@ -1,6 +1,5 @@
 package com.example.mangareader.ui.components
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -108,67 +106,77 @@ fun RecentlyReadCard(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.clickable(onClick = onClick)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
-        ) {
-            CoverImage(
-                coverPath = coverPath,
-                archivePath = coverArchivePath,
-                entryName = coverEntryName,
-                contentDescription = progress.mangaTitle,
-                modifier = Modifier.fillMaxSize()
-            )
-            Surface(
-                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f),
-                contentColor = Color.White,
-                shape = RoundedCornerShape(999.dp),
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
             ) {
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(36.dp)
+                CoverImage(
+                    coverPath = coverPath,
+                    archivePath = coverArchivePath,
+                    entryName = coverEntryName,
+                    contentDescription = progress.mangaTitle,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp)
                 ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Remove ${progress.mangaTitle} from Recently Read",
-                        modifier = Modifier.size(18.dp)
-                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Remove ${progress.mangaTitle} from Recently Read",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+                Text(
+                    text = progress.mangaTitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val chapterNumber = progress.chapterIndex + 1
+                val chapterProgress = if (progress.totalChapters > 0) {
+                    "Chapter $chapterNumber of ${progress.totalChapters}"
+                } else {
+                    "Chapter $chapterNumber"
+                }
+                Text(
+                    text = "$chapterProgress · Page ${progress.pageIndex + 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = TimeAgo.format(progress.lastReadTimestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = progress.mangaTitle,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = "Chapter ${progress.chapterIndex + 1} · Page ${progress.pageIndex + 1}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Text(
-            text = TimeAgo.format(progress.lastReadTimestamp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        val overallFraction =
-            if (progress.totalChapters > 0) {
-                ((progress.chapterIndex + 1f) / progress.totalChapters).coerceIn(0f, 1f)
-            } else 0f
-        LinearProgressIndicator(
-            progress = { overallFraction },
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
